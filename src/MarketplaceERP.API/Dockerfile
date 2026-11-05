@@ -1,3 +1,12 @@
+# Demo alojada: React y API desde UN mismo servidor (una sola URL).
+FROM node:20-alpine AS frontend
+WORKDIR /ui
+COPY frontend/marketplace-ui/package.json frontend/marketplace-ui/package-lock.json ./
+RUN npm ci --prefer-offline --no-audit --no-fund
+COPY frontend/marketplace-ui/ ./
+ENV VITE_CHECKOUT_HABILITADO=false
+RUN npm run build
+
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
@@ -33,9 +42,11 @@ USER appuser
 
 # Copiar artefactos publicados
 COPY --from=build /app/publish .
+COPY --from=frontend /ui/dist ./wwwroot
 
 # Railway asigna $PORT dinámicamente — ASP.NET lo respeta via ASPNETCORE_URLS
-ENV ASPNETCORE_URLS=http://+:${PORT:-8080}
+ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
+EXPOSE 8080
 ENTRYPOINT ["dotnet", "MarketplaceERP.API.dll"]

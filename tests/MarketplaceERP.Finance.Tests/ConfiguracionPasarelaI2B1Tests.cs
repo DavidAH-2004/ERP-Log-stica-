@@ -61,6 +61,36 @@ public class ConfiguracionPasarelaI2B1Tests
     }
 
     [Fact]
+    public async Task DemoAlojada_UsaProveedorDeshabilitadoYRechazaCualquierCobro()
+    {
+        var valores = new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=127.0.0.1;Database=qa;Username=qa;Password=unused",
+            ["Demo:Hosted"] = "true", ["Payments:Provider"] = "Disabled",
+            ["Payments:EnableMock"] = "false"
+        };
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddFinanceServices(new ConfigurationBuilder().AddInMemoryCollection(valores).Build(),
+            isDevelopment: false);
+        using var sp = services.BuildServiceProvider();
+        var pasarela = sp.GetRequiredService<IPaymentGateway>();
+        Assert.IsType<PagoDeshabilitadoService>(pasarela);
+        var resultado = await pasarela.ProcesarPagoAsync(
+            new MarketplaceERP.Shared.DTOs.PagoRequest(Guid.NewGuid(), Guid.NewGuid(), 5m, "USD"));
+        Assert.False(resultado.Exitoso);
+        Assert.Null(resultado.TransaccionId);
+    }
+
+    [Fact]
+    public void DisabledSinModoDemo_SeRechazaEnProduction()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddFinanceServices(Configurar("Disabled", "false"),
+                isDevelopment: false));
+    }
+
+    [Fact]
     public void Development_ConOptInExplicito_RegistraSolamenteElMock()
     {
         var services = new ServiceCollection();

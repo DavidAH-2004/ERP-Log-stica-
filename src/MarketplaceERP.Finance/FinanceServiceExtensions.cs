@@ -23,19 +23,20 @@ public static class FinanceServiceExtensions
         IConfiguration configuration,
         bool isDevelopment)
     {
-        // I2B1: rechazo por defecto. El mock jamás debe operar implícitamente.
-        // Aún no se dispone de un proveedor real; por ello cualquier configuración
-        // diferente de Mock habilitado EXPLÍCITAMENTE en Development bloquea
-        // el arranque, antes de abrir conexiones o procesar pagos.
+        // El mock permanece restringido a Development y con habilitacion explicita.
+        // La unica excepcion en Production es la DEMO ALOJADA, que registra
+        // una pasarela que siempre rechaza pagos. No existe proveedor real.
         var provider = configuration["Payments:Provider"]?.Trim();
         var allowMock = string.Equals(configuration["Payments:EnableMock"], "true", StringComparison.OrdinalIgnoreCase);
-        if (!string.Equals(provider, "Mock", StringComparison.OrdinalIgnoreCase) ||
-            !isDevelopment || !allowMock)
+        var demoAlojada = string.Equals(configuration["Demo:Hosted"], "true", StringComparison.OrdinalIgnoreCase) && !isDevelopment &&
+            string.Equals(provider, "Disabled", StringComparison.OrdinalIgnoreCase) && !allowMock;
+        var mockPermitido = isDevelopment && allowMock &&
+            string.Equals(provider, "Mock", StringComparison.OrdinalIgnoreCase);
+        if (!demoAlojada && !mockPermitido)
         {
             throw new InvalidOperationException(
-                "Pasarela de pagos no habilitada: actualmente solo se permite " +
-                "Payments:Provider=Mock y Payments:EnableMock=true en Development. " +
-                "No hay proveedor de cobros reales implementado; Production queda bloqueado.");
+                "Pasarela no autorizada. Solo se admite Mock con opt-in en Development, " +
+                "o Disabled con Demo:Hosted=true en Production (sin cobros).");
         }
 
         // ── DbContext ─────────────────────────────────────────────────────────
@@ -44,8 +45,11 @@ public static class FinanceServiceExtensions
                 configuration.GetConnectionString("DefaultConnection"),
                 npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", "finance")));
 
-        // ── Mock de pagos: únicamente Development y con consentimiento explícito ──
-        services.AddScoped<IPaymentGateway, PagoServiceMock>();
+        // En la demo alojada no se registra el Mock ni un proveedor real.
+        if (mockPermitido)
+            services.AddScoped<IPaymentGateway, PagoServiceMock>();
+        else
+            services.AddScoped<IPaymentGateway, PagoDeshabilitadoService>();
 
         // ── Checkout ─────────────────────────────────────────────────────────
         services.AddScoped<CheckoutOrchestrator>();

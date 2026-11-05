@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,12 +28,21 @@ if (!string.IsNullOrEmpty(databaseUrl))
 {
     // Railway provee: postgresql://user:pass@host:port/dbname
     var uri = new Uri(databaseUrl);
-    var userInfo = uri.UserInfo.Split(':');
-    // NOTA: Railway utiliza certificados autofirmados / proxies dinámicos en su infraestructura PostgreSQL interna.
-    // 'Trust Server Certificate=true' es requerido temporalmente para permitir handshake SSL sin error en Railway;
-    // se mantendrá documentado hasta que se configure una CA personalizada de confianza en el contenedor.
-    var connStr = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Username={userInfo[0]};Password={userInfo[1]};SSL Mode=Require;Trust Server Certificate=true";
-    builder.Configuration["ConnectionStrings:DefaultConnection"] = connStr;
+    var userInfo = uri.UserInfo.Split(':', 2);
+    if (userInfo.Length != 2 || string.IsNullOrWhiteSpace(uri.Host))
+        throw new InvalidOperationException("DATABASE_URL no es valida.");
+    // La cadena se construye sin concatenar credenciales; acepta caracteres escapados.
+    // Railway usa red privada entre servicios. No exponga PostgreSQL a Internet.
+    var db = new NpgsqlConnectionStringBuilder
+    {
+        Host = uri.Host,
+        Port = uri.Port > 0 ? uri.Port : 5432,
+        Database = Uri.UnescapeDataString(uri.AbsolutePath.TrimStart('/')),
+        Username = Uri.UnescapeDataString(userInfo[0]),
+        Password = Uri.UnescapeDataString(userInfo[1]),
+        SslMode = SslMode.Prefer
+    };
+    builder.Configuration["ConnectionStrings:DefaultConnection"] = db.ConnectionString;
 }
 
 // ── Soporte alternativo via variable CONNECTION_STRING ────────────────────────
@@ -205,6 +215,30 @@ if (app.Environment.IsProduction())
 
 app.UseCors();
 
+// La demo web comparte la misma URL para React y /api. No usa Vite en vivo.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// Defensa en profundidad: la demo alojada nunca permite iniciar un Checkout
+// ni pedir conciliaciones/reembolsos HTTP, incluso con una cuenta autenticada.
+if (app.Configuration.GetValue<bool>("Demo:Hosted"))
+{
+    app.Use(async (context, next) =>
+    {
+        if (HttpMethods.IsPost(context.Request.Method) &&
+            context.Request.Path.StartsWithSegments("/api/checkout"))
+        {
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                mensaje = "Los pagos y operaciones de Checkout estan deshabilitados en la demo."
+            });
+            return;
+        }
+        await next();
+    });
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -255,6 +289,10 @@ app.MapGet("/health/ready", async (
 }).AllowAnonymous();
 
 app.MapControllers();
+
+// Recargar una ruta de React (/inventario, /wms, etc.) debe entregar index.html.
+// En despliegues originales sin frontend en wwwroot, este fallback no interfiere.
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 // ── Secuencia de arranque única, ordenada y asíncrona (StartupInitializer) ────
 await MarketplaceERP.API.Services.StartupInitializer.InicializarAsync(

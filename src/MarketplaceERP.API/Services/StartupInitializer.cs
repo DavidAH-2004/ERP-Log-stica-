@@ -165,6 +165,17 @@ public static class StartupInitializer
 
         try
         {
+            // Una sola cuenta Admin en la demo alojada. La BD debe ser exclusiva
+            // para la demostracion; nunca se intenta reemplazar otros usuarios.
+            if (environment.IsProduction() && configuration.GetValue<bool>("Demo:Hosted"))
+            {
+                var admins = await coreDb.Usuarios.AsNoTracking()
+                    .Where(u => u.Rol == "Admin").Take(2).ToListAsync();
+                if (admins.Count > 1 || (admins.Count == 1 &&
+                    !string.Equals(admins[0].Email, adminEmail.Trim(), StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException(
+                        "La BD de demo ya contiene otro administrador: detener y revisar, no crear otro.");
+            }
             var adminExistente = await coreDb.Usuarios.FirstOrDefaultAsync(u => u.Email == adminEmail.ToLower().Trim());
             if (adminExistente is null)
             {

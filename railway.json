@@ -3,7 +3,10 @@
   "build": {
     "builder": "DOCKERFILE",
     "dockerfilePath": "src/MarketplaceERP.API/Dockerfile",
-    "watchPatterns": ["src/**"]
+    "watchPatterns": [
+      "src/**",
+      "frontend/marketplace-ui/**"
+    ]
   },
   "deploy": {
     "startCommand": "dotnet MarketplaceERP.API.dll",

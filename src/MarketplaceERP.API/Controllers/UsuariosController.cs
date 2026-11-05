@@ -47,6 +47,7 @@ public class UsuariosController : ControllerBase
 {
     private readonly CoreDbContext _coreDb;
     private readonly ILogger<UsuariosController> _logger;
+    private readonly IConfiguration _configuration;
     private readonly PasswordHasher<Usuario> _passwordHasher;
 
     private static readonly HashSet<string> _rolesValidos = new(StringComparer.OrdinalIgnoreCase)
@@ -56,10 +57,12 @@ public class UsuariosController : ControllerBase
         "Comprador"
     };
 
-    public UsuariosController(CoreDbContext coreDb, ILogger<UsuariosController> logger)
+    public UsuariosController(CoreDbContext coreDb, ILogger<UsuariosController> logger,
+        IConfiguration configuration)
     {
         _coreDb = coreDb;
         _logger = logger;
+        _configuration = configuration;
         _passwordHasher = new PasswordHasher<Usuario>();
     }
 
@@ -75,6 +78,12 @@ public class UsuariosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Crear([FromBody] CrearUsuarioRequest request, CancellationToken cancellationToken)
     {
+        // La demo compartida usa una unica cuenta administrativa creada por seed.
+        // No permitir altas de usuarios a traves de la instancia publica.
+        if (_configuration.GetValue<bool>("Demo:Hosted"))
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { mensaje = "La demostracion no permite crear cuentas." });
+
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new { mensaje = "El correo electrónico y la contraseña son obligatorios." });
 
