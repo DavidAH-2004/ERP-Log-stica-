@@ -1,0 +1,101 @@
+# Bloque D — gate de liberacion para el proyecto Vercel erp-log-stica.
+# Preparado en STAGING, NO activarlo en Vercel hasta que exista en main.
+# repository_dispatch solo ejecuta workflows que ya existen en la rama default.
+# No instala dependencias ni ejecuta codigo de un commit recibido por webhook.
+name: ERP Production Release Gate
+
+on:
+  repository_dispatch:
+    types: [vercel.deployment.ready]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+jobs:
+  release-gate:
+    name: Production release verification
+    if: >-
+      github.event_name == 'repository_dispatch' &&
+      github.event.client_payload.environment == 'production' &&
+      github.event.client_payload.project.id == 'prj_zmOkd2DQ4NtTqAFi9Bv7RFbGQp82'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # Esta action anuncia pending y en su post refleja el resultado real del job.
+      # El nombre debe coincidir EXACTAMENTE con Deployment Checks de Vercel.
+      - name: Report exact deployment status to Vercel
+        uses: vercel/repository-dispatch/actions/status@30f760c6640485cd92f8c785ef361382555fb712 # pinned v1
+        with:
+          name: 'Vercel - erp-log-stica: ERP-Production-Release-Gate'
+
+      - name: Fail-closed release authorization and identity
+        shell: bash
+        env:
+          TARGET_ID: ${{ github.event.client_payload.id }}
+          TARGET_PROJECT: ${{ github.event.client_payload.project.id }}
+          TARGET_ENVIRONMENT: ${{ github.event.client_payload.environment }}
+          TARGET_BRANCH: ${{ github.event.client_payload.git.ref }}
+          TARGET_SHA: ${{ github.event.client_payload.git.sha }}
+          APPROVED_SHA: ${{ vars.ERP_RELEASE_APPROVED_SHA }}
+          BACKEND_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RENDER_SHA }}
+          SCHEMA_VERIFIED_SHA: ${{ vars.ERP_RELEASE_NEON_SHA }}
+          RECOVERY_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RECOVERY_SHA }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+          [[ "$GITHUB_REPOSITORY" == 'Marzza01/ERP-Log-stica-' ]] || fail 'Unexpected GitHub repository'
+          [[ "$TARGET_PROJECT" == 'prj_zmOkd2DQ4NtTqAFi9Bv7RFbGQp82' ]] || fail 'Unexpected Vercel project'
+          [[ "$TARGET_ENVIRONMENT" == 'production' ]] || fail 'Not a production deployment'
+          [[ "$TARGET_BRANCH" == 'main' ]] || fail 'Deployment is not from main'
+          [[ "$TARGET_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || fail 'Invalid deployment ID'
+          [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid deployment SHA'
+          # Reject stale releases even when an old approval variable remains populated.
+          # Trusted GitHub REST call; never fetch URL/source from repository_dispatch.
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current_main_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'Cannot verify main branch SHA'
+          [[ "$TARGET_SHA" == "$current_main_sha" ]] || fail 'Deployment commit is not current main HEAD'
+          [[ -n "$APPROVED_SHA" && "$APPROVED_SHA" == "$TARGET_SHA" ]] || fail 'Missing explicit approval for this exact commit'
+          [[ -n "$BACKEND_VERIFIED_SHA" && "$BACKEND_VERIFIED_SHA" == "$TARGET_SHA" ]] || fail 'Render production SHA not certified for this release'
+          [[ -n "$SCHEMA_VERIFIED_SHA" && "$SCHEMA_VERIFIED_SHA" == "$TARGET_SHA" ]] || fail 'Neon migration/schema compatibility not certified for this release'
+          [[ -n "$RECOVERY_VERIFIED_SHA" && "$RECOVERY_VERIFIED_SHA" == "$TARGET_SHA" ]] || fail 'Configuration/data recovery gate not certified for this release'
+          echo 'Exact commit, project, branch and four release attestations validated.'
+
+      - name: Confirm Production API readiness (additional smoke, not schema proof)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Origin fijo: NUNCA usar una URL inyectada por repository_dispatch.
+          http_code="$(curl --silent --show-error --retry 2 --retry-delay 3 --max-time 30 -o /dev/null -w '%{http_code}' https://marketplaceerp-api.onrender.com/health/ready)"
+          [[ "$http_code" == '200' ]] || { echo "::error::Production API readiness returned HTTP $http_code"; exit 1; }
+          echo 'API readiness 200, separate release attestations also required.'
+
+  dry-run:
+    name: Validate release-gate wiring (no status, no deployment)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Check configuration without revealing values
+        env:
+          APPROVED_SHA: ${{ vars.ERP_RELEASE_APPROVED_SHA }}
+          BACKEND_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RENDER_SHA }}
+          SCHEMA_VERIFIED_SHA: ${{ vars.ERP_RELEASE_NEON_SHA }}
+          RECOVERY_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RECOVERY_SHA }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in APPROVED_SHA BACKEND_VERIFIED_SHA SCHEMA_VERIFIED_SHA RECOVERY_VERIFIED_SHA; do
+            if [[ -z "${!variable}" ]]; then
+              echo "::notice::$variable is not configured (production stays blocked)"
+            elif [[ ! "${!variable}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::$variable must be a full commit SHA"
+              exit 1
+            else
+              echo "$variable is configured (value withheld)"
+            fi
+          done
+          echo 'Dry run only. No commit status, no migration and no promotion.'
