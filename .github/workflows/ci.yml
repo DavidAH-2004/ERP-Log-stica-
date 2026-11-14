@@ -376,6 +376,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: F315 Vercel policy offline guard (11 scenarios, no network)
+        shell: powershell
+        run: .\\scripts\\f315-vercel-policy-contract-tests.ps1
       - name: Compare two disposable worktrees with absent files
         shell: powershell
         run: |
