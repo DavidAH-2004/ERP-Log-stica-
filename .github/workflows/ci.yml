@@ -122,6 +122,11 @@ jobs:
         with:
           node-version: '24'
 
+      # F304: prueba exactamente los comandos de aprobacion del gate de Vercel,
+      # con 'gh' y 'curl' falsos en un directorio temporal (sin red ni Production).
+      - name: F304 release gate fail-closed contract (18 offline scenarios)
+        run: node scripts/f304-release-gate-contract.mjs
+
       # Contrato P0 del runner externo: nunca ejecuta escrituras en CI.
       - name: Validate P0 staging acceptance runner
         run: |
