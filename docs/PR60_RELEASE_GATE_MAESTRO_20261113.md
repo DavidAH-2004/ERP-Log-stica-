@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> **F317 — DOCUMENTO HISTÓRICO / NO UTILIZAR SUS SHAs NI GATES ANTIGUOS PARA UN RELEASE.**
+> El estado operativo vigente de los Bloques D/E es [**PR60_D_RELEASE_GATE_OPERATIVO_20261114.md**](PR60_D_RELEASE_GATE_OPERATIVO_20261114.md), respaldado por Issue #65 y PR #60. En particular, el Bloque C quedó cerrado **solo dentro del alcance funcional QA STAGING con pagos reales deshabilitados**; las frases antiguas aquí que dicen “C NO-GO” no reflejan el corte actual. Los backups, SHAs y deployments citados más abajo son históricos y **no autorizan** migraciones ni fusiones.
+>
 # PR #60 | Puerta de release y alineación a main
 
 ## F282/F283 — antirregresión del backend productivo y compensación tras corte HTTP
