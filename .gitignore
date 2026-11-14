@@ -29,6 +29,8 @@ coverage.json
 *.trx
 
 ## Frontend (Node / React / Vite)
+# Vercel CLI local project linkage is machine-specific and must stay untracked.
+.vercel/
 node_modules/
 dist/
 dist-ssr/
