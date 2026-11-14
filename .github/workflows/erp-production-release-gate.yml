@@ -27,7 +27,7 @@ jobs:
       # Esta action anuncia pending y en su post refleja el resultado real del job.
       # El nombre debe coincidir EXACTAMENTE con Deployment Checks de Vercel.
       - name: Report exact deployment status to Vercel
-        uses: vercel/repository-dispatch/actions/status@v1
+        uses: vercel/repository-dispatch/actions/status@30f760c6640485cd92f8c785ef361382555fb712 # pinned v1
         with:
           name: 'Vercel - erp-log-stica: ERP-Production-Release-Gate'
 
@@ -43,6 +43,7 @@ jobs:
           BACKEND_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RENDER_SHA }}
           SCHEMA_VERIFIED_SHA: ${{ vars.ERP_RELEASE_NEON_SHA }}
           RECOVERY_VERIFIED_SHA: ${{ vars.ERP_RELEASE_RECOVERY_SHA }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           fail() { echo "::error::$1"; exit 1; }
@@ -52,6 +53,11 @@ jobs:
           [[ "$TARGET_BRANCH" == 'main' ]] || fail 'Deployment is not from main'
           [[ "$TARGET_ID" =~ ^dpl_[A-Za-z0-9]+$ ]] || fail 'Invalid deployment ID'
           [[ "$TARGET_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid deployment SHA'
+          # Reject stale releases even when an old approval variable remains populated.
+          # Trusted GitHub REST call; never fetch URL/source from repository_dispatch.
+          current_main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          [[ "$current_main_sha" =~ ^[0-9a-f]{40}$ ]] || fail 'Cannot verify main branch SHA'
+          [[ "$TARGET_SHA" == "$current_main_sha" ]] || fail 'Deployment commit is not current main HEAD'
           [[ -n "$APPROVED_SHA" && "$APPROVED_SHA" == "$TARGET_SHA" ]] || fail 'Missing explicit approval for this exact commit'
           [[ -n "$BACKEND_VERIFIED_SHA" && "$BACKEND_VERIFIED_SHA" == "$TARGET_SHA" ]] || fail 'Render production SHA not certified for this release'
           [[ -n "$SCHEMA_VERIFIED_SHA" && "$SCHEMA_VERIFIED_SHA" == "$TARGET_SHA" ]] || fail 'Neon migration/schema compatibility not certified for this release'
