@@ -39,7 +39,7 @@ const fulfill=(route,body,status=200)=>route.fulfill({
   status,contentType:'application/json',body:JSON.stringify(body)
 });
 async function mockApi(page){
-  const s={posts:[],failNext:false,successful:0,external:0};
+  const s={posts:[],failNext:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null};
   await page.route(url=>url.pathname.startsWith('/api/'),async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
     if(url.hostname!=='127.0.0.1'){s.external++;return route.abort();}
@@ -64,6 +64,12 @@ async function mockApi(page){
         sku:'F411-TEST',nombre:'Producto de prueba',ubicacionCodigo:'A1',opciones:null});
     }
     if(path===('/api/productos/por-codigo/'+valid)&&method==='GET'){
+      if(s.lookupDelayMs>0){const wait=s.lookupDelayMs;s.lookupDelayMs=0;await delay(wait);}
+      if(s.lookupFailure){
+        const failure=s.lookupFailure;s.lookupFailure=null;
+        if(failure==='network')return route.abort('failed');
+        return fulfill(route,{mensaje:'Catalog temporarily unavailable'},503);
+      }
       return fulfill(route,{id:'22222222-2222-4222-8222-222222222222',
         sku:'F411-TEST',nombre:'Producto de prueba',codigoEAN:valid});
     }
@@ -147,6 +153,40 @@ try{
   assert.deepEqual(state.posts[2],state.posts[1],'Retry must preserve UUID and amount');
   assert.equal(state.successful,2);
   assert.equal(state.external,0);
+
+  // F428: scanning a valid EAN does NOT authorize saving before
+  // the lookup responds, and failed network/API lookups close the form.
+  state.lookupDelayMs=900;
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  const save=page.getByRole('button',{name:'Guardar (Enter)'});
+  await save.waitFor({state:'visible',timeout:6000});
+  assert.equal(await save.isDisabled(),true,'Save must be disabled during product lookup');
+  assert.equal(await qty.isDisabled(),true,'Quantity must be disabled during lookup');
+  assert.equal(state.posts.length,3,'Lookup must not write any counts');
+  await page.waitForFunction(()=>{
+    const button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('Guardar (Enter)'));
+    return button && !button.disabled;
+  },null,{timeout:9000});
+  await page.getByRole('button',{name:'Descartar'}).click();
+  await scanner.waitFor({state:'visible'});
+  assert.equal(state.posts.length,3);
+
+  state.lookupFailure='server';
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  await page.getByText('No se pudo verificar el producto. Vuelve a intentarlo.').waitFor({timeout:8000});
+  await scanner.waitFor({state:'visible'});
+  assert.equal(await qty.count(),0,'5xx lookup must clear quantity form');
+  assert.equal(state.posts.length,3,'5xx lookup must not write counts');
+
+  state.lookupFailure='network';
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  await page.getByText('Sin conexión: no se pudo verificar el producto. Vuelve a escanear cuando se recupere.').waitFor({timeout:8000});
+  await scanner.waitFor({state:'visible'});
+  assert.equal(await qty.count(),0,'Network failure must clear quantity form');
+  assert.equal(state.posts.length,3,'Network failure must not write counts');
   await ctx.close();
 
   // F422: exercitar la ruta REAL de @zxing/browser a través de
@@ -230,6 +270,7 @@ try{
     syntheticUsbKeyboard:'13 digits + Enter',invalidLocalRejection:true,
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,buyerDenied:true,remoteApiCalls:0,
+    f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
     cameraSyntheticDecode:true,cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
   }));
 }finally{

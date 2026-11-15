@@ -26,6 +26,8 @@ interface Aviso {
 interface Pendiente {
   codigo: string;
   lecturaId: string;
+  /** F428: never register a quantity until the real backend confirms the product. */
+  verificado: boolean;
   sku?: string;
   nombre?: string;
 }
@@ -102,21 +104,32 @@ export default function SesionConteoPage() {
     setAviso(null);
     setOpciones(null);
     setCantidad('');
-    setPendiente({ codigo, lecturaId: nuevoId() });
-    setTimeout(() => cantidadRef.current?.focus(), 0);
+    const lecturaId = nuevoId();
+    setPendiente({ codigo, lecturaId, verificado: false });
     try {
       const p = await codigosBarrasApi.buscarPorCodigo(codigo);
-      setPendiente(actual => (actual?.codigo === codigo ? { ...actual, sku: p.sku, nombre: p.nombre } : actual));
+      // A delayed response must not authenticate a *different* pending scan,
+      // including a rescan of the same barcode after Discard.
+      setPendiente(actual => (actual?.lecturaId === lecturaId
+        ? { ...actual, sku: p.sku, nombre: p.nombre, verificado: true }
+        : actual));
+      setTimeout(() => cantidadRef.current?.focus(), 0);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         mostrar({ resultado: 'ProductoNoEncontrado', mensaje: `No hay producto con el código ${codigo}.` });
-        volverAEscanear();
+      } else if (e instanceof ApiError && e.status === 0) {
+        mostrar({ resultado: 'SinConexion', mensaje: 'Sin conexión: no se pudo verificar el producto. Vuelve a escanear cuando se recupere.' });
+      } else {
+        mostrar({ resultado: 'CodigoInvalido', mensaje: 'No se pudo verificar el producto. Vuelve a intentarlo.' });
       }
+      // Fail closed for 401/403/429/5xx and transport failures too:
+      // no count can be recorded with an unverified EAN.
+      volverAEscanear();
     }
   };
 
   const guardar = async (stockFisicoId?: string) => {
-    if (!pendiente || enviando) return;
+    if (!pendiente?.verificado || enviando) return;
     const n = Number(cantidad);
     if (cantidad.trim() === '' || !Number.isInteger(n) || n < 0) {
       cantidadRef.current?.focus();
@@ -243,6 +256,7 @@ export default function SesionConteoPage() {
                   inputMode="numeric"
                   style={control}
                   value={cantidad}
+                  disabled={!pendiente.verificado || enviando}
                   onChange={e => setCantidad(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!opciones) guardar(); } }}
                 />
@@ -251,12 +265,12 @@ export default function SesionConteoPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontWeight: 600 }}>¿Qué posición estás contando?</div>
                   {opciones.map(o => (
-                    <button key={o.stockFisicoId} className="btn btn-primary" style={boton} disabled={enviando}
+                    <button key={o.stockFisicoId} className="btn btn-primary" style={boton} disabled={enviando || !pendiente.verificado}
                       onClick={() => guardar(o.stockFisicoId)}>{o.ubicacionCodigo}</button>
                   ))}
                 </div>
               ) : (
-                <button className="btn btn-primary" style={boton} disabled={enviando} onClick={() => guardar()}>
+                <button className="btn btn-primary" style={boton} disabled={enviando || !pendiente.verificado} onClick={() => guardar()}>
                   {enviando ? 'Guardando…' : aviso?.resultado === 'SinConexion' ? 'Reintentar guardar (Enter)' : 'Guardar (Enter)'}
                 </button>
               )}
