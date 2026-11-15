@@ -40,3 +40,20 @@ No reutilizar ejemplos/credenciales de otros países; los documentos generales d
 `ConfiguracionPasarelaI2B1Tests` protege el contrato fail-closed: `Payments:Provider=Disabled` registra exclusivamente `PagoServiceDisabled`, no envía cobros; `Mock` solo arranca en Development con flag explícita; proveedor bancario todavía no implementado impide el arranque. F436 añade escenarios de valores de proveedor no implementados y de `EnableMock` activo con modo Disabled.
 
 **No convertir estos tests de configuración en afirmación de pagos reales implementados.** #69 continúa abierto, sin cobros, sin proveedor seleccionado y sin webhooks externos.
+
+## F461 — Investigación oficial Wompi SV y verificador aislado (15-nov-2026)
+
+**No hay proveedor contratado ni adaptador habilitado; cero llamadas bancarias.** La documentación oficial de **Wompi El Salvador** establece que el header `wompi_hash` representa un HMAC-SHA256 calculado sobre los **bytes exactos** del body con el API Secret del aplicativo. F461 agrega `WompiSvWebhookSignature.Verificar` como función pura, comparación en tiempo constante y rechazo de firmas/cuerpos inválidos; no se registró en DI ni se añadió un endpoint.
+
+Documentación verificada (jurisdicción correcta):
+- https://docs.wompi.sv/webhook/validar-webhook
+- https://docs.wompi.sv/metodos-api/transaccion_prueba
+- https://docs.wompi.sv/webhook/definicion-webhook
+- https://docs.wompi.sv/redirect-url/parametros-de-url-de-redirect
+- https://wompi.sv/NuestrosServicios/API
+
+Controles que **siguen sin implementarse**: recepción autenticada de webhook, unicidad durable de eventos e idempotencia del reembolso, comprobación de cuenta/app/orden/monto/moneda y resultado final consultado al proveedor. `EsProductiva=false` distingue simulaciones documentadas pero **no sustituye verificar firma**, ni una firma válida prueba por sí sola un cargo confirmado. No usar parámetros de redirección del navegador como confirmación sin validarlos. Evitar cualquier manejo de PAN/CVV en MarketplaceERP; preferir flujo alojado tras contrato y revisión PCI.
+
+**Advertencia sobre BAC:** la guía general https://ayuda.baccredomatic.com/para_empresas_o_negocios/comercios_afiliados/e-commerce?country=es señala expresamente que ese artículo no aplica a sus clientes de El Salvador. Por ello no asumir que sus requisitos ni APIs particulares están disponibles para el país sin información contractual.
+
+**Nunca confundir** dominios, llaves ni SDKs de Wompi Colombia (`wompi.co`) con Wompi El Salvador (`wompi.sv`). Solicitar acceso de desarrollo al proveedor seleccionado y confirmar parámetros oficiales antes de integrar; `Payments:Provider=Disabled` permanece obligatorio.
