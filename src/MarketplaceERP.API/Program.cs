@@ -56,12 +56,15 @@ builder.Services.AddMarketplaceSecurity(jwtSettings,
     builder.Configuration.GetValue<bool>("Auth:EnableSessionVersionCheck"));
 
 // ── Rate Limiting nativo para Login ───────────────────────────────────────────
+// Render's CF-Connecting-IP is edge-controlled; do not accept arbitrary XFF.
+var renderServiceForRateLimit = Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME");
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("LoginLimiter", httpContext =>
     {
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ip = DeploymentHttpSecurity.LoginRateLimitPartition(
+            httpContext, renderServiceForRateLimit);
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ip,
             factory: _ => new FixedWindowRateLimiterOptions
