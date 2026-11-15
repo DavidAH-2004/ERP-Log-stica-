@@ -5,7 +5,9 @@ param(
     [ValidatePattern('^dpl_[A-Za-z0-9]+$')]
     [string]$DeploymentId = 'dpl_7qLQtfePvPMqjmP8aQWRmkVnAdEz'
 )
-$ErrorActionPreference='Stop'
+# Vercel CLI can emit informational text on stderr under Windows PowerShell 5.1.
+# Use explicit exit-code and HTTP checks, as in F410/F412, instead of treating that banner as a fatal exception.
+$ErrorActionPreference='Continue'
 $render='https://marketplaceerp-api-staging.onrender.com'
 $cli=Join-Path $env:APPDATA 'npm\vercel.cmd'
 if(!(Test-Path -LiteralPath $cli)){throw 'F424_VERCEL_CLI_MISSING'}
