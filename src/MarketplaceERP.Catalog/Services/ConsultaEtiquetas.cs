@@ -10,7 +10,7 @@ public sealed record EtiquetaProducto(Guid Id, string Sku, string Nombre, string
 public static class ConsultaEtiquetas
 {
     /// <summary>
-    /// Sin <paramref name="ids"/>: todos los productos activos (publicados) que tienen código.
+    /// Sin <paramref name="ids"/>: todos los productos publicados con código NO NULO ni vacío.
     /// Con <paramref name="ids"/>: exactamente esos productos (los inexistentes se ignoran);
     /// la pantalla avisa cuáles no tienen código. Siempre ordenados por SKU.
     /// </summary>
@@ -26,7 +26,7 @@ public static class ConsultaEtiquetas
             consulta = consulta.Where(p => p.VendedorId == vendedorId.Value);
 
         consulta = ids is null
-            ? consulta.Where(p => p.EstaPublicado && p.CodigoEAN != "")
+            ? consulta.Where(p => p.EstaPublicado && p.CodigoEAN != null && p.CodigoEAN != "")
             : consulta.Where(p => ids.Contains(p.Id));
 
         return await consulta
