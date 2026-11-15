@@ -305,7 +305,12 @@ public sealed class ProductosOpcionesAltaQaTests
     [Fact]
     public void F427_HttpJson_DistingueEanOmitidoDeNuloExplicito()
     {
-        var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            // The default JsonElement (Undefined) represents an omitted field:
+            // omit it on serialization rather than trying to write Undefined.
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault
+        };
         var omitido = F427Peticion(null, incluirEan: false);
         var explicito = F427Peticion(null, incluirEan: true);
         var serializadoOmitido = JsonSerializer.Serialize(omitido, opts);
