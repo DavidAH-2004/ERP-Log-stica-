@@ -30,6 +30,8 @@ interface Pendiente {
   verificado: boolean;
   sku?: string;
   nombre?: string;
+  esAlias?: boolean;
+  codigoVigente?: string;
 }
 
 interface LecturaEnviada {
@@ -128,7 +130,16 @@ export default function SesionConteoPage() {
       if (lookupActualRef.current !== lecturaId) return;
       // F440: a 200 response is not enough. Never turn a partial/corrupt
       // catalog response, or a different EAN, into a verified stock write.
-      if (!p || p.codigoEAN !== codigo ||
+      // F474: current EAN must match exactly, OR the server must
+      // explicitly attest an immutable historical alias of this same SKU.
+      // Never trust a partial/mismatched alias response as approval to count.
+      const codigoVigente = Boolean(p) && esEan13Valido(p.codigoEAN) &&
+        p.codigoEAN === codigo && p.esAlias !== true &&
+        (p.codigoLeido === undefined || p.codigoLeido === codigo);
+      const aliasConfirmado = Boolean(p) && p.esAlias === true &&
+        p.codigoLeido === codigo && p.codigoEAN !== codigo &&
+        esEan13Valido(p.codigoEAN);
+      if (!p || (!codigoVigente && !aliasConfirmado) ||
           typeof p.id !== 'string' ||
           !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.id) ||
           typeof p.sku !== 'string' || !p.sku.trim() ||
@@ -138,7 +149,8 @@ export default function SesionConteoPage() {
       // A delayed response must not authenticate a *different* pending scan,
       // including a rescan of the same barcode after Discard.
       setPendiente(actual => (actual?.lecturaId === lecturaId
-        ? { ...actual, sku: p.sku, nombre: p.nombre, verificado: true }
+        ? { ...actual, sku: p.sku, nombre: p.nombre,
+            verificado: true, esAlias: aliasConfirmado, codigoVigente: p.codigoEAN }
         : actual));
       setTimeout(() => cantidadRef.current?.focus(), 0);
     } catch (e) {
@@ -296,6 +308,12 @@ export default function SesionConteoPage() {
               <div>
                 <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{pendiente.nombre ?? 'Buscando producto…'}</div>
                 <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{pendiente.sku ?? ''} · {pendiente.codigo}</div>
+                {pendiente.esAlias && (
+                  <div role="note" style={{ color: 'var(--text-primary)', marginTop: 6, fontSize: '0.85rem' }}>
+                    Etiqueta histórica reconocida. EAN vigente: <strong>{pendiente.codigoVigente}</strong>.
+                    La lectura conservará el código físico original; no se modifica el SKU ni el inventario automáticamente.
+                  </div>
+                )}
               </div>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontWeight: 600 }}>
                 ¿Cuántas unidades hay?

@@ -8,7 +8,11 @@ export interface EtiquetaProducto {
   codigoEAN: string;
 }
 
-export interface ProductoPorCodigo extends EtiquetaProducto {}
+export interface ProductoPorCodigo extends EtiquetaProducto {
+  /** The exact physical EAN scanned, not the product's current EAN. */
+  codigoLeido?: string;
+  esAlias?: boolean;
+}
 
 export const codigosBarrasApi = {
   etiquetas: (ids?: string[]) => {
