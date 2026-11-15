@@ -183,9 +183,9 @@ public sealed class F451EanReservationsMigrationPgTests
                     db, historicalAlias, null, permitirHistoricos: false);
                 Assert.Empty(disabled);
 
-                var admin = await ConsultaCodigoEan.BuscarAsync(
+                var adminMatches = await ConsultaCodigoEan.BuscarAsync(
                     db, historicalAlias, null, permitirHistoricos: true);
-                var match = Assert.Single(admin);
+                var match = Assert.Single(adminMatches);
                 Assert.Equal(p1.Id, match.Id);
                 Assert.Equal(actual, match.CodigoEAN);
                 Assert.Equal(historicalAlias, match.CodigoLeido);
