@@ -331,6 +331,10 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: node tests/f406-optical-roundtrip.mjs
 
+      - name: F411 keyboard-wedge scanner and denied camera (local Chromium)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f411-scanner-camera-ui.mjs
+
       - name: Test real browser with mock API only
         working-directory: frontend/marketplace-ui
         run: node tests/e2e-auth-browser.mjs
