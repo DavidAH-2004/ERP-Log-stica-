@@ -21,4 +21,8 @@ export const codigosBarrasApi = {
   },
   buscarPorCodigo: (codigo: string) =>
     apiClient.get<ProductoPorCodigo>('/api/productos/por-codigo/' + encodeURIComponent(codigo)),
+  // F403: explícito, Admin-only en backend, jamás sustituye un EAN no vacío.
+  asignarSiFalta: (id: string) =>
+    apiClient.post<{ codigoEAN: string }>('/api/productos/' +
+      encodeURIComponent(id) + '/codigo-barras/asignar'),
 };

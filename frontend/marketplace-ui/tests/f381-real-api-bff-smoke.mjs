@@ -294,8 +294,14 @@ assert.equal((await call(request(scanBase, 'GET', {
 }))).status, 403, 'Buyer must not see warehouse sessions');
 assert.equal((await call(request(scanBase, 'GET'))).status, 401);
 
-const f399StockId = fixtureBefore.stocks?.[0]?.id;
-assert.match(f399StockId, /^[0-9a-f-]{36}$/i, 'F105 stock exists in temporary PostgreSQL');
+const f399Wms = await call(request('/api/wms/stocks?sku=F105-A-001', 'GET', {
+  cookie: cookies.header,
+}));
+assert.equal(f399Wms.status, 200, 'Admin must resolve physical stock through WMS');
+const f399Stocks = await f399Wms.json();
+assert.ok(Array.isArray(f399Stocks));
+const f399StockId = f399Stocks.find(s => s.productoId === fixtureA)?.id;
+assert.match(f399StockId, /^[0-9a-f-]{36}$/i, 'F105 physical stock exists in temporary PostgreSQL');
 const planScan = await call(request('/api/inventario/conteos-ciclicos', 'POST',
   adminMutatingHeaders, {stockFisicoId: f399StockId, observaciones:'F399 CI-only'}));
 assert.equal(planScan.status, 200, 'Admin may plan a cycle count');

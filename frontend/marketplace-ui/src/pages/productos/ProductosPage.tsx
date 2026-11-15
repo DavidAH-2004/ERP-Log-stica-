@@ -9,6 +9,8 @@ import { useNavigate } from 'react-router-dom';
 import CodigoBarrasSvg from '../../components/ui/CodigoBarrasSvg';
 import EscanerCamaraModal from './EscanerCamaraModal';
 import { esEan13Valido } from '../../utils/ean13';
+import { codigosBarrasApi } from '../../api/codigosBarras';
+import { useAuth } from '../../context/AuthContext';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
@@ -18,9 +20,12 @@ import type { Producto } from '../../types';
 
 export default function ProductosPage() {
   const navigate = useNavigate();
+  const { usuario } = useAuth();
+  const esAdmin = usuario?.rol === 'Admin';
   const [seleccionados, setSeleccionados] = useState<Set<string>>(() => new Set());
   const [escanerAbierto, setEscanerAbierto] = useState(false);
   const [codigoEditado, setCodigoEditado] = useState('');
+  const [asignandoCodigo, setAsignandoCodigo] = useState(false);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -160,6 +165,23 @@ export default function ProductosPage() {
   };
 
   const toast = useToast();
+
+  const handleAsignarCodigo = async () => {
+    if (!editingId || !esAdmin || codigoEditado) return;
+    if (!window.confirm('¿Asignar un código EAN interno a este producto sin código? Se conservarán todos los EAN existentes.')) return;
+    setAsignandoCodigo(true);
+    try {
+      const res = await codigosBarrasApi.asignarSiFalta(editingId);
+      setCodigoEditado(res.codigoEAN);
+      toast.success('Código interno asignado', 'EAN-13: ' + res.codigoEAN);
+      await loadData();
+    } catch (error) {
+      toast.error('No se pudo asignar el código',
+        error instanceof Error ? error.message : 'Verifica que la migración de Desarrollo esté aplicada.');
+    } finally {
+      setAsignandoCodigo(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -512,6 +534,12 @@ export default function ProductosPage() {
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                   El EAN existente no se modifica al editar el producto.
                 </p>
+                {esAdmin && !codigoEditado && (
+                  <button type="button" className="btn btn-secondary"
+                    disabled={asignandoCodigo} onClick={() => void handleAsignarCodigo()}>
+                    {asignandoCodigo ? 'Asignando...' : 'Asignar EAN-13 interno'}
+                  </button>
+                )}
               </div>
             )}
             {!editingId && (
