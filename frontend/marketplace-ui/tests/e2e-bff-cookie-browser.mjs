@@ -27,7 +27,8 @@ const expiry = () => new Date(Date.now() + 8 * 60_000).toISOString();
 
 function makeJwt(email, role) {
   const payload = Buffer.from(JSON.stringify({
-    email, role, exp: Math.floor(Date.now() / 1000) + 480,
+    email, role, iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 480,
   })).toString('base64url');
   return 'e30.' + payload + '.f355-fixture-signature';
 }
