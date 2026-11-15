@@ -42,6 +42,7 @@ public class AuthController : ControllerBase
     private readonly CoreDbContext _coreDb;
     private readonly JwtSettings _jwtSettings;
     private readonly bool _enforceSessionVersion;
+    private readonly bool _distributedAccountThrottle;
     private readonly ILogger<AuthController> _logger;
     private readonly PasswordHasher<Usuario> _passwordHasher;
     private static readonly Usuario _dummyUsuario = new() { Email = "dummy@security.internal" };
@@ -57,6 +58,7 @@ public class AuthController : ControllerBase
         _coreDb = coreDb;
         _jwtSettings = jwtOptions.Value;
         _enforceSessionVersion = configuration?.GetValue<bool>("Auth:EnableSessionVersionCheck") ?? false;
+        _distributedAccountThrottle = configuration?.GetValue<bool>("Auth:EnableDistributedAccountLoginThrottle") ?? false;
         _logger = logger;
         _passwordHasher = new PasswordHasher<Usuario>();
     }
@@ -85,6 +87,37 @@ public class AuthController : ControllerBase
 
         var normalizedEmail = rawEmail.Trim().ToLowerInvariant();
         var maskedEmail = MaskEmail(normalizedEmail);
+
+        // F369: atomic PostgreSQL upsert keyed by HMAC of the normalized email.
+        // This runs equally for existing and nonexistent addresses and across
+        // Render instances. The old per-proxy-IP limiter stays in place too.
+        // OFF by default until the Core login_throttle migration is verified.
+        if (normalizedEmail.Length > 254)
+            return BadRequest(new { mensaje = "El correo electrónico no es válido." });
+        if (_distributedAccountThrottle)
+        {
+            try
+            {
+                var attempts = await ConsumeDistributedLoginAttemptAsync(normalizedEmail, cancellationToken);
+                if (attempts > 5)
+                {
+                    Response.Headers["Retry-After"] = "60";
+                    _logger.LogWarning("Límite distribuido de login superado (sin datos identificables).");
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { mensaje = "Demasiados intentos. Vuelve a intentarlo más tarde." });
+                }
+            }
+            catch (Exception ex) when (
+                ex is System.Data.Common.DbException || ex is DbUpdateException ||
+                ex is InvalidOperationException || ex is OperationCanceledException)
+            {
+                // A missing migration or a DB outage must not silently disable
+                // cross-instance throttling after this flag has been enabled.
+                _logger.LogWarning("No se pudo verificar el límite distribuido de login.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+        }
 
         // Buscar usuario estrictamente por Email normalizado en minúsculas
         var usuario = await _coreDb.Usuarios
@@ -206,6 +239,50 @@ public class AuthController : ControllerBase
             _logger.LogWarning("No se pudo confirmar la revocación de sesión.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
                 new { mensaje = "La revocación no se confirmó." });
+        }
+    }
+
+    /// <summary>
+    /// F369: one atomic SQL statement across PostgreSQL clients/instances.
+    /// Neither a plaintext email nor its unsalted SHA hash is stored: the
+    /// private JWT signing key is used with a distinct HMAC domain separator.
+    /// This is an ACCOUNT limiter, not trusted client-IP identification.
+    /// </summary>
+    private async Task<int> ConsumeDistributedLoginAttemptAsync(
+        string normalizedEmail, CancellationToken cancellationToken)
+    {
+        var key = Convert.ToHexString(HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(_jwtSettings.Key),
+            Encoding.UTF8.GetBytes("marketplaceerp:login-throttle:v1\0" + normalizedEmail)));
+
+        await _coreDb.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = _coreDb.Database.GetDbConnection().CreateCommand();
+            command.CommandText = """
+                INSERT INTO core.login_throttle AS lim ("AccountKey", "WindowStartUtc", "Requests")
+                VALUES (@account_key, clock_timestamp(), 1)
+                ON CONFLICT ("AccountKey") DO UPDATE SET
+                  "Requests" = CASE
+                    WHEN lim."WindowStartUtc" <= clock_timestamp() - INTERVAL '60 seconds'
+                    THEN 1 ELSE LEAST(lim."Requests" + 1, 2147483647) END,
+                  "WindowStartUtc" = CASE
+                    WHEN lim."WindowStartUtc" <= clock_timestamp() - INTERVAL '60 seconds'
+                    THEN clock_timestamp() ELSE lim."WindowStartUtc" END
+                RETURNING "Requests";
+                """;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "account_key";
+            parameter.Value = key;
+            command.Parameters.Add(parameter);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is not int attempts || attempts < 1)
+                throw new InvalidOperationException("El límite de login devolvió un contador inválido.");
+            return attempts;
+        }
+        finally
+        {
+            await _coreDb.Database.CloseConnectionAsync();
         }
     }
 
