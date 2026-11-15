@@ -139,7 +139,15 @@ jobs:
           node scripts/p1-staging-auth-readonly.mjs --help
           node --check frontend/marketplace-ui/tests/e2e-staging-preview.mjs
 
-      # F371: offline contract of the read-only DEV health/ready monitor.\n      - name: Test F371 Render Development health monitor without network\n        run: node scripts/f371-readiness-monitor.mjs --self-test\n\n      # F372: fail closed if cookie/antiforgery/TempData DataProtection consumers are added.\n      - name: F372 static DataProtection consumer gate\n        run: node scripts/f372-dataprotection-consumers.mjs --self-test\n\n      # 8. Instalar dependencias npm
+      # F371: offline contract of the read-only DEV health/ready monitor.
+      - name: Test F371 Render Development health monitor without network
+        run: node scripts/f371-readiness-monitor.mjs --self-test
+
+      # F372: fail closed if cookie/antiforgery/TempData DataProtection consumers are added.
+      - name: F372 static DataProtection consumer gate
+        run: node scripts/f372-dataprotection-consumers.mjs --self-test
+
+      # 8. Instalar dependencias npm
       - name: Install npm dependencies
         working-directory: frontend/marketplace-ui
         run: npm ci
