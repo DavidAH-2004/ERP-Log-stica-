@@ -21,7 +21,8 @@
 - Trigger de control de asignación/rotación centralizada, conectado con la operación actual `CodigoBarrasAsignacionService`. Antes de activarlo, hay que actualizar el camino de alta y generador de EAN; nunca crear la reserva y olvidarse de mantenerla en sincronía.
 
 `catalog.rotaciones_ean` — bitácora append-only de transiciones:
-- `Id uuid PRIMARY KEY`, `SolicitudId uuid UNIQUE NOT NULL` (idempotencia), `ProductoId uuid NOT NULL`, `CodigoAnterior varchar(50) NOT NULL`, `CodigoNuevo varchar(13) NOT NULL`.
+- `Id uuid PRIMARY KEY`, `SolicitudId uuid NOT NULL` (idempotencia), `ProductoId uuid NOT NULL`, `CodigoAnterior varchar(50) NOT NULL`, `CodigoNuevo varchar(13) NOT NULL`.
+- `UNIQUE(SolicitudId, Version)` para registrar eventos consecutivos Solicitud/Approval/Execution sin sobrescribir estados, con idempotencia por versión. El último evento define el estado; no actualizar registros anteriores.
 - `Motivo text NOT NULL` (limitado, sin credenciales), `SolicitadoPor uuid NOT NULL`, `AprobadoPor uuid NULL`, `SolicitadoUtc timestamptz NOT NULL`, `AprobadoUtc timestamptz NULL`, `EjecutadoUtc timestamptz NULL`, `Version integer NOT NULL`.
 - `Estado varchar(24) NOT NULL`: `Solicitada`, `Aprobada`, `Ejecutada`, `Rechazada`, `Fallida`. El resultado de aplicación debe distinguir solicitud registrada de rotación realmente ejecutada; jamás imprimir código nuevo por tener solicitud pendiente.
 - Restricción de coherencia entre estado/fechas; FK a producto sin cascada; índices (`ProductoId`, `SolicitadoUtc`) y (`CodigoAnterior`) para trazabilidad. Registro histórico de «EAN inválido legado» solo como texto, **nunca** como clave escaneable activa.
@@ -33,7 +34,7 @@
 2. Expand: crear tablas, índices y restricciones aditivas, sin UPDATE a `catalog.productos` ni recomputar checksums. Backfill transaccional de EAN actuales **válidos y únicos**, los inválidos quedan solo registrados en reporte de preflight.
 3. Sincronización: adaptar alta, asignación Admin y el trigger de reserva para registrar EAN válido atómicamente; validar con dos escritores concurrentes sobre PostgreSQL efímero. Fallar cerrado si la reserva no coincide con el producto.
 4. Dual-read controlado: consultar `CodigoEAN` actual y aliases habilitados únicamente tras confirmar que no hay colisión cross-table; preservar filtro por `VendedorId`; registrar qué EAN se leyó sin exponerlo en logs HTTP.
-5. Operación de rotación: transacción única que bloquea ProductoId y códigos en orden canónico, inserta el nuevo EAN en `reservas_ean` (conflicto = 409), cambia el anterior a Alias y actualiza `productos.CodigoEAN`, registra `rotaciones_ean`. `SolicitudId` repetido devuelve el mismo resultado durable. Si cualquier paso falla, rollback completo.
+5. Operación de rotación: transacción única que bloquea ProductoId y códigos en orden canónico, inserta el nuevo EAN en `reservas_ean` (conflicto = 409), cambia el anterior a Alias y actualiza `productos.CodigoEAN`, registra `rotaciones_ean`. `SolicitudId` y `Version` repetidos devuelven el mismo evento durable; la progresión autorizada agrega una versión nueva. Si cualquier paso falla, rollback completo.
 6. Gate: feature flag por entorno apagada inicialmente. Habilitar solo después de pruebas de impresora, cámara/lector real, inventario, idempotencia, 3 roles, backup y rollback.
 
 ## Regla de reversión

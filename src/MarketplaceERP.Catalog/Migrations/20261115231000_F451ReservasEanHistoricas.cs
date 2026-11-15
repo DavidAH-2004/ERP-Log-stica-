@@ -34,7 +34,7 @@ public partial class F451ReservasEanHistoricas : Migration
 
             CREATE TABLE catalog.rotaciones_ean (
                 "Id" uuid PRIMARY KEY,
-                "SolicitudId" uuid NOT NULL UNIQUE,
+                "SolicitudId" uuid NOT NULL,
                 "ProductoId" uuid NOT NULL REFERENCES catalog.productos("Id") ON DELETE RESTRICT,
                 "CodigoAnterior" varchar(50) NOT NULL,
                 "CodigoNuevo" varchar(13) NOT NULL,
@@ -49,6 +49,7 @@ public partial class F451ReservasEanHistoricas : Migration
                 CONSTRAINT "CK_rotaciones_ean_estado"
                     CHECK ("Estado" IN ('Solicitada','Aprobada','Ejecutada','Rechazada','Fallida')),
                 CONSTRAINT "CK_rotaciones_ean_version" CHECK ("Version" > 0),
+                CONSTRAINT "UQ_rotaciones_ean_solicitud_version" UNIQUE ("SolicitudId", "Version"),
                 CONSTRAINT "CK_rotaciones_ean_motivo" CHECK (char_length(trim("Motivo")) BETWEEN 1 AND 1000),
                 CONSTRAINT "CK_rotaciones_ean_codigo" CHECK ("CodigoNuevo" ~ '^[0-9]{13}$')
             );
@@ -122,8 +123,8 @@ public partial class F451ReservasEanHistoricas : Migration
             AFTER INSERT OR UPDATE OF "CodigoEAN" ON catalog.productos
             FOR EACH ROW EXECUTE FUNCTION catalog.f451_reservar_ean_producto();
 
-            -- No UPDATE/DELETE of completed audit rows: explicit approval flows
-            -- will append new state transitions rather than rewrite history.
+            -- F454: each event uses the same SolicitudId with a new Version;
+            -- a duplicate version is rejected atomically. Never rewrite event history.
             CREATE FUNCTION catalog.f451_auditoria_ean_inmutable() RETURNS trigger
             LANGUAGE plpgsql AS $fn$
             BEGIN

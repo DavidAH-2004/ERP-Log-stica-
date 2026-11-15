@@ -110,6 +110,56 @@ public sealed class F451EanReservationsMigrationPgTests
                     () => db.GetService<IMigrator>().MigrateAsync(previous));
                 Assert.Contains(migration, await db.Database.GetAppliedMigrationsAsync());
             }
+
+            // F454: approval may append events (versions) for one request
+            // but cannot overwrite earlier states or replay the same version.
+            await using (var cn = new NpgsqlConnection(scratch.ConnectionString))
+            {
+                await cn.OpenAsync();
+                var requestId = Guid.NewGuid();
+                var actorId = Guid.NewGuid();
+                async Task InsertEvent(int version, string estado)
+                {
+                    await using var cmd = new NpgsqlCommand("""
+                        INSERT INTO catalog.rotaciones_ean
+                            ("Id","SolicitudId","ProductoId","CodigoAnterior",
+                             "CodigoNuevo","Motivo","SolicitadoPor","Version","Estado")
+                        VALUES (@id,@request,@product,@previous,@next,@reason,@actor,@version,@state)
+                        """, cn);
+                    cmd.Parameters.AddWithValue("id", Guid.NewGuid());
+                    cmd.Parameters.AddWithValue("request", requestId);
+                    cmd.Parameters.AddWithValue("product", p1.Id);
+                    cmd.Parameters.AddWithValue("previous", actual);
+                    cmd.Parameters.AddWithValue("next", extra);
+                    cmd.Parameters.AddWithValue("reason", "Auditoría sintética F454");
+                    cmd.Parameters.AddWithValue("actor", actorId);
+                    cmd.Parameters.AddWithValue("version", version);
+                    cmd.Parameters.AddWithValue("state", estado);
+                    await cmd.ExecuteNonQueryAsync();
+                }
+
+                await InsertEvent(1, "Solicitada");
+                await InsertEvent(2, "Aprobada");
+                var duplicate = await Assert.ThrowsAsync<PostgresException>(
+                    () => InsertEvent(2, "Aprobada"));
+                Assert.Equal("23505", duplicate.SqlState);
+
+                await using var forbidden = new NpgsqlCommand("""
+                    UPDATE catalog.rotaciones_ean SET "Estado"='Rechazada'
+                    WHERE "SolicitudId"=@request AND "Version"=1
+                    """, cn);
+                forbidden.Parameters.AddWithValue("request", requestId);
+                var immutable = await Assert.ThrowsAsync<PostgresException>(
+                    () => forbidden.ExecuteNonQueryAsync());
+                Assert.Equal("23514", immutable.SqlState);
+
+                await using var count = new NpgsqlCommand("""
+                    SELECT count(*) FROM catalog.rotaciones_ean
+                    WHERE "SolicitudId"=@request
+                    """, cn);
+                count.Parameters.AddWithValue("request", requestId);
+                Assert.Equal(2, Convert.ToInt32(await count.ExecuteScalarAsync()));
+            }
         }
         finally
         {
