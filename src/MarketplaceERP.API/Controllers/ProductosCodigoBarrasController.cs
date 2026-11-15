@@ -75,6 +75,25 @@ public sealed class ProductosCodigoBarrasController : ControllerBase
         return Ok(coincidencias[0]);
     }
 
+    /// <summary>
+    /// F402: asigna un consecutivo interno SOLO a productos que no tienen EAN.
+    /// Jamás renumera identificadores existentes. Requiere Admin y una
+    /// migración PostgreSQL aditiva previa; no se invoca desde startup.
+    /// </summary>
+    [HttpPost("{id:guid}/codigo-barras/asignar")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> AsignarCodigoInterno(
+        Guid id, [FromServices] CodigoBarrasAsignacionService asignacion, CancellationToken ct)
+    {
+        if (id == Guid.Empty) return BadRequest(new { mensaje = "Identificador inválido." });
+
+        var codigo = await asignacion.AsignarSiFaltaAsync(id, ct);
+        if (codigo is null) return NotFound(new { mensaje = "Producto no encontrado." });
+
+        Response.Headers.CacheControl = "no-store";
+        return Ok(new { codigoEAN = codigo });
+    }
+
     private Guid? ObtenerVendedorActual()
     {
         var valores = User.FindAll("VendedorId")
