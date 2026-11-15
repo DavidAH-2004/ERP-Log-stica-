@@ -16,9 +16,22 @@ No cambiar el almacenamiento del frontend de una sola vez. **El código F353 se 
 - `frontend/marketplace-ui/tests/bff-cookie.test.cjs`: pruebas negativas/positivas del login, cookies, token CSRF, ruta de sesión, encabezados peligrosos, logout y protección de producción. Se incorporan al script `npm run test:auth` obligatorio en CI.
 - No hay migración de base de datos, no se crea cuenta ni usuario y no se habilitan pagos.
 
+## F354 — Cliente experimental opt-in incorporado (sin activar en Vercel)
+
+El backend y el proxy F353 se complementan ahora con un cliente React experimental:
+
+- `VITE_BFF_AUTH_MODE=enabled` es un **flag de compilación del frontend**, separado del flag del middleware `ERP_COOKIE_BFF_MODE=enabled`. Se necesitan **ambos** y `VERCEL_ENV=preview` para el recorrido. **Ninguno fue configurado en Vercel/Render**.
+- `AuthContext.tsx`: si el flag está compilado, limpia los antiguos valores de autenticación localStorage, rehidrata la sesión por `GET /api/auth/session`, mantiene únicamente identidad y vencimiento, y verifica la respuesta del backend antes de conceder acceso a la UI. No expone ni almacena JWT.
+- `api/client.ts`: en modo BFF no consulta `erp_token` ni emite Bearer desde el navegador; usa cookies same-origin y envía `X-ERP-CSRF` en operaciones mutadoras, con el token solamente en memoria de módulo.
+- `LoginPage.tsx`: selecciona ruta por el rol que acaba de verificar `AuthProvider`, sin leer `erp_usuario` de localStorage.
+- `App.tsx`: espera el resultado de rehidratación en modo cookie, evitando redirecciones prematuras.
+- `tests/bff-client.test.cjs`: añade comprobaciones del cliente para no leer JWT, enviar CSRF y usar cookies same-origin. Se ejecuta con `npm run test:auth`.
+
+**Este código sigue desactivado por defecto**. Los flujos Chromium heredados prueban Bearer/localStorage, no un navegador real con los dos flags BFF. No habilitar Preview ni Production hasta completar las pruebas y la revisión que aparecen abajo.
+
 ## Límites de seguridad y por qué no está habilitado
 
-1. **Frontend no migrado:** `AuthContext`, `authSession.ts`, `api/client.ts`, `LoginPage` y pruebas Chromium siguen bajo el contrato Bearer/localStorage. Activar `ERP_COOKIE_BFF_MODE` sin migrarlos impediría iniciar sesión correctamente. **No activar el flag aún**, tampoco en Preview de pruebas normales.
+1. **Frontend experimental, NO validado end-to-end:** F354 añade un modo cookie opt-in a `AuthContext`, `api/client.ts` y `LoginPage`, pero el comportamiento por defecto continúa siendo Bearer/localStorage. Las pruebas Chromium heredadas **todavía dependen** de `erp_token`; falta una matriz E2E en navegador con **ambos flags** compilados y configurados, para roles Admin/Vendedor/Comprador, reinicios, logout y datos reales sintéticos. **No activar aún en Vercel.**
 2. **Logout no revoca el JWT en Render:** únicamente borra la cookie del navegador. Un JWT ya robado antes de migrar sigue válido hasta su vencimiento. Hace falta revocación/rotación respaldada por un almacén confiable y pruebas de reinicios.
 3. **Middleware solo en Vercel:** el acceso directo al backend sigue soportando Bearer y debe mantener su propia autorización, rate limit, registros y comprobación de identidad/roles. El proxy no es una frontera que sustituya la seguridad en API.
 4. **CSRF necesita migración:** cuando el frontend sea compatible, pedirá el token del endpoint de sesión y lo añadirá a **cada** mutación. El prototipo rechaza todas las peticiones sin `Origin` o CSRF correcto, incluidas las pruebas antiguas.
