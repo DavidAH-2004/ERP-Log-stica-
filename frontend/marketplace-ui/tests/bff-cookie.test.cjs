@@ -205,3 +205,29 @@ test('BFF opt-in cannot activate on Vercel Production (legacy route stays unchan
     assert.equal(calls[0], 'https://marketplaceerp-api.onrender.com/api/auth/login');
   }, 'production', 'enabled');
 });
+
+
+test('BFF rehidratado no extiende el TTL más allá de iat + 15 minutos', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const oldJwt = 'e30.' + Buffer.from(JSON.stringify({
+    role: 'Admin', iat: now - 600, exp: now + 1800,
+  })).toString('base64url') + '.signature';
+  const csrf = 'c'.repeat(43);
+  await withBff(async (_url, options) => {
+    assert.equal(options.headers.get('authorization'), 'Bearer ' + oldJwt);
+    return new Response(JSON.stringify({
+      usuario: 'Administrador', rol: 'Admin', role: 'Admin',
+      expiresAt: new Date((now + 1800) * 1000).toISOString(),
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }, async proxy => {
+    const response = await proxy(request('/api/auth/session', 'GET', {
+      cookie: '__Host-erp_session=' + oldJwt + '; __Host-erp_csrf=' + csrf,
+    }));
+    assert.equal(response.status, 200);
+    const data = await response.json();
+    const remainingMs = Date.parse(data.expiresAt) - Date.now();
+    assert.ok(remainingMs > 230_000 && remainingMs <= 300_000,
+      'A 10-minute-old JWT has at most 5 remaining BFF minutes');
+    assert.equal(Object.hasOwn(data, 'token'), false);
+  });
+});
