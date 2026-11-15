@@ -32,6 +32,13 @@ interface Pendiente {
   nombre?: string;
 }
 
+interface LecturaEnviada {
+  lecturaId: string;
+  codigo: string;
+  cantidad: number;
+  stockFisicoId?: string;
+}
+
 /** Identificador de lectura. crypto.randomUUID solo existe en HTTPS/localhost; por IP en la red local se usa getRandomValues. */
 function nuevoId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -62,6 +69,10 @@ export default function SesionConteoPage() {
   const [camara, setCamara] = useState(false);
   const [cierre, setCierre] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [reintentoPendiente, setReintentoPendiente] = useState(false);
+  // F432: after an uncertain network outcome, retry the identical request.
+  const lecturaEnviadaRef = useRef<LecturaEnviada | null>(null);
+  const enviandoRef = useRef(false);
   const escaneoRef = useRef<HTMLInputElement>(null);
   const cantidadRef = useRef<HTMLInputElement>(null);
   // A stale async lookup must not clear or validate the operator's next scan.
@@ -88,6 +99,8 @@ export default function SesionConteoPage() {
 
   const volverAEscanear = () => {
     lookupActualRef.current = null;
+    lecturaEnviadaRef.current = null;
+    setReintentoPendiente(false);
     setPendiente(null);
     setCantidad('');
     setOpciones(null);
@@ -135,17 +148,27 @@ export default function SesionConteoPage() {
   };
 
   const guardar = async (stockFisicoId?: string) => {
-    if (!pendiente?.verificado || enviando) return;
+    if (!pendiente?.verificado || enviandoRef.current) return;
+    // Once POST started its result may be uncertain. Preserve the exact
+    // UUID/EAN/quantity/location; neither Enter nor another button can mutate it.
+    const anterior = lecturaEnviadaRef.current;
     const n = Number(cantidad);
-    if (cantidad.trim() === '' || !Number.isInteger(n) || n < 0) {
+    if (!anterior && (cantidad.trim() === '' || !Number.isSafeInteger(n) ||
+        n < 0 || n > 2147483647)) {
       cantidadRef.current?.focus();
       return;
     }
+    const solicitud: LecturaEnviada = anterior ?? {
+      lecturaId: pendiente.lecturaId, codigo: pendiente.codigo,
+      cantidad: n, stockFisicoId,
+    };
+    enviandoRef.current = true;
+    lecturaEnviadaRef.current = solicitud;
     setEnviando(true);
     try {
-      const r = await sesionesConteoApi.leer(id, {
-        lecturaId: pendiente.lecturaId, codigo: pendiente.codigo, cantidad: n, stockFisicoId,
-      });
+      const r = await sesionesConteoApi.leer(id, solicitud);
+      lecturaEnviadaRef.current = null;
+      setReintentoPendiente(false);
       if (r.resultado === 'ElegirUbicacion') {
         // La lectura no se guardó: la siguiente (con la posición elegida) lleva otro id.
         setOpciones(r.opciones ?? []);
@@ -162,13 +185,18 @@ export default function SesionConteoPage() {
       cargar();
     } catch (e) {
       if (e instanceof ApiError && e.status === 0) {
-        // Se conserva el mismo lecturaId: si el servidor sí la recibió, el reintento no cuenta doble.
+        // F432: the server may already have committed the first request.
+        // Keep its full immutable payload for an idempotent retry.
+        setReintentoPendiente(true);
         mostrar({ resultado: 'SinConexion', mensaje: 'Sin conexión: reintenta guardar la misma lectura. No vuelvas a escanear.' });
       } else {
+        lecturaEnviadaRef.current = null;
+        setReintentoPendiente(false);
         mostrar({ resultado: 'CodigoInvalido', mensaje: e instanceof Error ? e.message : 'No se pudo registrar la lectura.' });
         volverAEscanear();
       }
     } finally {
+      enviandoRef.current = false;
       setEnviando(false);
     }
   };
@@ -262,7 +290,8 @@ export default function SesionConteoPage() {
                   inputMode="numeric"
                   style={control}
                   value={cantidad}
-                  disabled={!pendiente.verificado || enviando}
+                  disabled={!pendiente.verificado || enviando || reintentoPendiente}
+                  max={2147483647}
                   onChange={e => setCantidad(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (!opciones) guardar(); } }}
                 />
@@ -271,8 +300,13 @@ export default function SesionConteoPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ fontWeight: 600 }}>¿Qué posición estás contando?</div>
                   {opciones.map(o => (
-                    <button key={o.stockFisicoId} className="btn btn-primary" style={boton} disabled={enviando || !pendiente.verificado}
-                      onClick={() => guardar(o.stockFisicoId)}>{o.ubicacionCodigo}</button>
+                    <button key={o.stockFisicoId} className="btn btn-primary" style={boton}
+                      disabled={enviando || !pendiente.verificado ||
+                        (reintentoPendiente && lecturaEnviadaRef.current?.stockFisicoId !== o.stockFisicoId)}
+                      onClick={() => guardar(o.stockFisicoId)}>
+                      {reintentoPendiente && lecturaEnviadaRef.current?.stockFisicoId === o.stockFisicoId
+                        ? `Reintentar ${o.ubicacionCodigo}` : o.ubicacionCodigo}
+                    </button>
                   ))}
                 </div>
               ) : (
@@ -280,7 +314,14 @@ export default function SesionConteoPage() {
                   {enviando ? 'Guardando…' : aviso?.resultado === 'SinConexion' ? 'Reintentar guardar (Enter)' : 'Guardar (Enter)'}
                 </button>
               )}
-              <button className="btn btn-ghost" style={boton} onClick={volverAEscanear}>Descartar</button>
+              {reintentoPendiente && (
+                <div role="alert" style={{ color: 'var(--red)', fontSize: '0.85rem' }}>
+                  Resultado incierto: cantidad y ubicación bloqueadas. Reintenta exactamente la misma lectura
+                  antes de iniciar otro conteo para evitar duplicaciones.
+                </div>
+              )}
+              <button className="btn btn-ghost" style={boton}
+                disabled={enviando || reintentoPendiente} onClick={volverAEscanear}>Descartar</button>
             </div>
           )}
         </>

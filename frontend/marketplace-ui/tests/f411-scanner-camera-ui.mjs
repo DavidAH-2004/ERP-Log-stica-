@@ -149,6 +149,10 @@ try{
   await qty.fill('6');
   await qty.press('Enter');
   await page.getByText('Sin conexión: reintenta guardar la misma lectura. No vuelvas a escanear.').waitFor();
+  assert.equal(await qty.isDisabled(),true,'F432: quantity must be frozen after an uncertain write');
+  assert.equal(await page.getByRole('button',{name:'Descartar'}).isDisabled(),true,
+    'F432: an uncertain write must not be discarded and rescanned with a new UUID');
+  assert.equal(await qty.inputValue(),'6');
   await page.getByRole('button',{name:'Reintentar guardar (Enter)'}).click();
   await scanner.waitFor({state:'visible'});
   assert.equal(state.posts.length,3);
@@ -295,7 +299,8 @@ try{
   console.log('F411_SCANNER_CAMERA_UI_PASS '+JSON.stringify({
     syntheticUsbKeyboard:'13 digits + Enter',invalidLocalRejection:true,
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
-    offlineRetrySameUuid:true,buyerDenied:true,remoteApiCalls:0,
+    offlineRetrySameUuid:true,f432FrozenRetryPayload:true,
+    buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
     f429StaleLookupCannotClearNewScan:true,
     cameraSyntheticDecode:true,cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
