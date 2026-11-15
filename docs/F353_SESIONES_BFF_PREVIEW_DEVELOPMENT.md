@@ -42,7 +42,7 @@ El backend y el proxy F353 se complementan ahora con un cliente React experiment
 ## Secuencia de cierre prevista
 
 1. Mantener las pruebas locales y CI del adaptador y revisar diseño de cookies/origen; cualquier error debe hacer fallar el cambio.
-2. Implementar el cliente BFF en `development` y sustituir lectura de `localStorage`; adaptar e2e-auth-browser, e2e-live-local-api, e2e-staging-preview y F105 para pedir identidad/CSRF sin leer JWT.
+2. El cliente BFF experimental de F354 ya está codificado en `development` con opt-in; **pendiente** adaptar las pruebas e2e-auth-browser, e2e-live-local-api, e2e-staging-preview y F105 para verificar identidad/CSRF sin leer JWT en una Preview real. La ruta Bearer heredada sigue como comportamiento por defecto.
 3. Verificar que la sesión en Vercel Preview es independiente del backend Production y que Render STAGING está conectado a Neon Desarrollo aislado.
 4. Probar login, permisos y caducidad Admin/Vendedor/Comprador, rotación/revocación, CSRF y consultas/escrituras reales con BD temporal; añadir controles distribuidos y auditoría de login.
 5. Solo después de CI, revisión de seguridad, rollback y autorización explícita, activar mediante variable en un entorno de evaluación; **Production permanece en Bearer legado hasta una migración aprobada y coordinada**.
