@@ -438,6 +438,20 @@ public class ProductosController : ControllerBase
         if (producto is null)
             return BadRequest(new { mensaje = "El producto no puede ser nulo." });
 
+        // F418: el alta interactiva no puede registrar códigos no escaneables.
+        // Los EAN del prefijo interno 20 deben emitirse por el servicio Admin
+        // transaccional, nunca por POST directo de Admin o Vendedor.
+        // Un identificador externo con checksum válido puede ser declarado,
+        // pero su validez matemática no certifica titularidad GS1.
+        var eanSolicitado = producto.CodigoEAN?.Trim();
+        if (!string.IsNullOrEmpty(eanSolicitado))
+        {
+            if (!CodigoBarras.EsEan13Valido(eanSolicitado))
+                return BadRequest(new { mensaje = "Código EAN inválido: requiere 13 dígitos y verificador correcto." });
+            if (CodigoBarras.EsInterno(eanSolicitado))
+                return BadRequest(new { mensaje = "Los EAN internos se asignan únicamente desde la operación Admin dedicada." });
+        }
+
         // Los GUID de plantilla no representan registros Core reales.
         // Esto es una barrera mínima de integridad, no sustituye
         // validación de existencia/autorización de Core en cada POST.
@@ -508,7 +522,7 @@ public class ProductosController : ControllerBase
             DimensionesCm = producto.DimensionesCm,
             UnidadMedida = producto.UnidadMedida,
             EstadoProducto = producto.EstadoProducto,
-            CodigoEAN = producto.CodigoEAN,
+            CodigoEAN = eanSolicitado,
             VendedorId = vendedorId,
             CategoriaId = producto.CategoriaId,
             EstaPublicado = producto.EstaPublicado,

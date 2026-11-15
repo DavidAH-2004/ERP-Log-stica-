@@ -160,6 +160,49 @@ public sealed class ProductosOpcionesAltaQaTests
                 .Cast<HttpGetAttribute>()).Template);
     }
 
+
+    [Fact]
+    public async Task F418_Create_NoAceptaEanInvalidoNiPrefijoInternoManual()
+    {
+        var (catalog, core, vendedor, _, _) = CrearContexts();
+        await using var cat = catalog;
+        await using var coreContext = core;
+        var categoria = await core.Categorias.AsNoTracking().FirstAsync();
+        var vendedorController = Controller(catalog, "Vendedor", vendedor.ToString(), core);
+        var adminController = Controller(catalog, "Admin", null, core);
+
+        MarketplaceERP.Catalog.Entities.Producto Nuevo(string sku, string? ean) => new()
+        {
+            Id = Guid.NewGuid(), Sku = sku, Nombre = "Producto F418",
+            CategoriaNombre = categoria.Nombre, CategoriaId = categoria.Id,
+            VendedorId = vendedor, CodigoEAN = ean, PrecioB2C = 30m,
+            PrecioB2B = 22m, Moneda = "USD", EstadoProducto = "Activo"
+        };
+
+        Assert.IsType<BadRequestObjectResult>(await vendedorController.Create(
+            Nuevo("F418-BAD-CHECKSUM", "7410000000001")));
+        Assert.IsType<BadRequestObjectResult>(await adminController.Create(
+            Nuevo("F418-BAD-LENGTH", "12345")));
+
+        var interno = CodigoBarras.GenerarInterno(42);
+        Assert.IsType<BadRequestObjectResult>(await vendedorController.Create(
+            Nuevo("F418-SELLER-INTERNAL", interno)));
+        Assert.IsType<BadRequestObjectResult>(await adminController.Create(
+            Nuevo("F418-ADMIN-INTERNAL", interno)));
+        Assert.Equal(0, await catalog.Productos.CountAsync());
+
+        // Un EAN externo con verificador válido no se modifica; el
+        // identificador vacío debe persistir como NULL (asignación Admin).
+        Assert.IsType<CreatedAtActionResult>(await vendedorController.Create(
+            Nuevo("F418-EXTERNAL", " 4006381333931 ")));
+        Assert.IsType<CreatedAtActionResult>(await vendedorController.Create(
+            Nuevo("F418-NO-EAN", "  ")));
+        var saved = await catalog.Productos.AsNoTracking().ToDictionaryAsync(p => p.Sku);
+        Assert.Equal("4006381333931", saved["F418-EXTERNAL"].CodigoEAN);
+        Assert.Null(saved["F418-NO-EAN"].CodigoEAN);
+        Assert.Equal(0, await catalog.StockFisico.CountAsync());
+    }
+
     private static ProductosController Controller(CatalogDbContext catalog,
         string role, string? claimId, CoreDbContext? core = null)
     {
