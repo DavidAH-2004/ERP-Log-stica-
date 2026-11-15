@@ -26,8 +26,18 @@
 - [CI #43689207510](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43689207510): 4/4, prueba F399 de conteo con lectura concurrente, F401 acceso, F402 EAN.
 - [CI #43690403236](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43690403236): 4/4, F404 sin hallazgos duplicados.
 - [CI #43690717252](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43690717252): 4/4, F405 30 etiquetas virtuales en una página carta, F399/F390.
-- F406: verificar resultado de su CI y registrar SHA/ejecución en issue #70 antes de certificar.
-- El rollback de migraciones F397 se ensayó en PostgreSQL desechable con EAN históricos preservados; **ninguna migración se aplicó a Neon real**.
+- [CI #43691966469](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43691966469): **4/4 SUCCESS**, F406 tres EAN-13 JsBarcode→ZXing y pruebas de sesión/stock concurrentes.
+- El rollback de migraciones F397 se ensayó en PostgreSQL desechable con EAN históricos preservados. **F408:** las migraciones Up aditivas se ensayaron después en una copia de Neon Desarrollo y luego se aplicaron a la rama principal de Neon Desarrollo (no Producción), con huella EAN idéntica antes/después.
+
+## F408/F409 — Despliegue seguro de Desarrollo (15-nov-2026)
+
+Se creó una rama de recuperación Neon sin compute `br-delicate-sea-bbcw0ene` desde el LSN `0/2E7CC80`, con vencimiento 29-nov-2026; también una rama temporal para ensayo `br-polished-darkness-bbp358o9`, con vencimiento 18-nov. El snapshot manual anterior se conservó porque el proyecto rechazó uno nuevo por cuota agotada. Ambas ramas temporales provienen del mismo origen y se verificó por SELECT la huella de productos/EAN en la rama de ensayo.
+
+Se generó el SQL de **exactamente las dos migraciones EF** (sin DROP, DELETE FROM ni UPDATE de productos), se aplicó primero en la rama de ensayo y se comparó la estructura con la rama Development. Tras aprobar, se aplicó transaccionalmente en Neon **Development** por el conector nativo. La verificación obtuvo **Core4 / Catalog9 / Finance10**, 18 tablas Catalog, 500 productos, 451 sin EAN y 49 EAN de 13 dígitos; la huella EAN permaneció `de0d29ab45a87632b06d362424b51141`. Sesiones, lecturas y hallazgos nuevos: cero filas. No se tocó Neon Production.
+
+El despliegue manual de Render Desarrollo `dep-dbsmoobbc2fs73c0h8j0` alcanzó estado **LIVE** en `development@cb843e8`; Vercel Preview protegida `dpl_5A1A1dwTKpwf9CcGvTztw8cxNgNn` **READY** con el mismo commit. Se probaron GET `/health`, `/health/ready` (**200**) y GET anónimos a sesión, consulta de etiquetas, sesiones de conteo y búsqueda EAN (**401**) en ambas rutas. Los logs Render posteriores no registraron errores en la ventana consultada; readiness tardó alrededor de 12 segundos en una muestra, insuficiente para medir SLO.
+
+**Esta es evidencia de migración y rutas protegidas, no de E2E autenticado con tres roles en la Preview ni de impresora, cámara o lector físico.** La decisión de publicación sigue siendo NO-GO a Producción.
 
 ## 3. Prueba física indispensable (F398)
 
@@ -44,11 +54,11 @@ No marcar F398 como completo porque un dispositivo aparece enumerado en Windows:
 
 ## 4. Condiciones para F400 y la promoción
 
-- [ ] F406 y cualquier posterior CI definitivo: 4/4 PASS.
+- [x] F406 y último CI con cambios funcionales: 4/4 PASS, [run #43691966469](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43691966469).
 - [ ] F398 verificado con dispositivos físicos o aceptación explícita **documentada del alcance sin hardware**; nunca llamar «hardware probado» a una simulación.
 - [ ] Aceptación expresa de que **cambio/regeneración** de EAN permanecen excluidos hasta diseñar auditoría, alias y compatibilidad de etiquetas históricas, o implementación segura por separado con pruebas.
 - [ ] Revisar PR #68 por módulos y permisos; no tratar 76 archivos/92 commits como exclusivamente códigos de barras.
 - [ ] Para `main`: cumplir issue #65 (respaldos de la base productiva, rollback coordinado, variables reales seguras), obtener autorización productiva independiente y *después* considerar promoción.
-- [ ] Mantener pagos reales del issue #69 en modo Disabled.
+- [x] Mantener pagos reales del issue #69 en modo Disabled; no se han ejecutado cobros.
 
 **Decisión de liberación actual: NO-GO a Producción.** El resultado automatizado respalda `development`; la prueba física y recuperación productiva siguen abiertas.
