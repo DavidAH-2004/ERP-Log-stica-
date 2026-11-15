@@ -6,7 +6,10 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const previewOrigin = 'https://erp-preview.example';
 const stagingOrigin = 'https://marketplaceerp-api-staging.onrender.com';
-const jwt = 'e30.eyJyb2xlIjoiQWRtaW4ifQ.signature';
+const jwt = 'e30.' + Buffer.from(JSON.stringify({
+  role: 'Admin', iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 900,
+})).toString('base64url') + '.signature';
 
 async function withBff(fakeFetch, action, environment = 'preview', flag = 'enabled') {
   const previous = {
