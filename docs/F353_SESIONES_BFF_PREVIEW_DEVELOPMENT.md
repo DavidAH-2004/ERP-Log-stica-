@@ -29,6 +29,13 @@ El backend y el proxy F353 se complementan ahora con un cliente React experiment
 
 **Este código sigue desactivado por defecto**. Los flujos Chromium heredados prueban Bearer/localStorage, no un navegador real con los dos flags BFF. No habilitar Preview ni Production hasta completar las pruebas y la revisión que aparecen abajo.
 
+## F355–F356 — Validación aislada adicional
+
+- `tests/e2e-bff-cookie-browser.mjs`: test Chromium sobre **HTTPS local con certificado efímero** y un upstream simulado en memoria; comprueba cookies `Secure`/`HttpOnly`, ausencia de JWT en `localStorage`, recarga/identidad, CSRF 403/204, logout y rutas Admin, Vendedor, Comprador. No se conecta a Neon, Render ni pasarelas de pago.
+- `.github/workflows/ci.yml`: ejecuta este test en un paso separado del job Chromium, con `VITE_BFF_AUTH_MODE=enabled` **solo en ese paso**. El CI normal y los despliegues no reciben el flag.
+- `tests/MarketplaceERP.Finance.Tests/AuthCookieSessionControllerTests.cs`: pruebas de la acción de sesión con `CoreDbContext` InMemory (sin datos externos) para usuario activo y rol válido, frente a usuario inactivo, JWT expirado, identidad ausente, cambio de rol y rol desconocido.
+- Estas comprobaciones **no certifican** la combinación real Vercel Preview → Render Desarrollo → Neon Desarrollo, ni revocación JWT en todas las instancias. El merge sigue sujeto a revisión del CI final, y la activación sigue bloqueada.
+
 ## Límites de seguridad y por qué no está habilitado
 
 1. **Frontend experimental, NO validado end-to-end:** F354 añade un modo cookie opt-in a `AuthContext`, `api/client.ts` y `LoginPage`, pero el comportamiento por defecto continúa siendo Bearer/localStorage. Las pruebas Chromium heredadas **todavía dependen** de `erp_token`; falta una matriz E2E en navegador con **ambos flags** compilados y configurados, para roles Admin/Vendedor/Comprador, reinicios, logout y datos reales sintéticos. **No activar aún en Vercel.**
