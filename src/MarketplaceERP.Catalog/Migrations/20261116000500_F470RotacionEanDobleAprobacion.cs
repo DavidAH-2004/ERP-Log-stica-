@@ -199,8 +199,13 @@ public partial class F470RotacionEanDobleAprobacion : Migration
         migrationBuilder.Sql("""
             DO $guard$
             BEGIN
-                IF EXISTS (SELECT 1 FROM catalog.rotaciones_ean) THEN
-                    RAISE EXCEPTION 'F470: rollback blocked by rotation requests or executed rotations';
+                IF EXISTS (SELECT 1 FROM catalog.rotaciones_ean)
+                   OR EXISTS (SELECT 1 FROM catalog.reservas_ean
+                              WHERE "Origen" <> 'Backfill' OR "Estado" <> 'Actual')
+                THEN
+                    -- A downgrade must not drop F470 SQL functions when the
+                    -- F451 schema has new reservations or immutable aliases.
+                    RAISE EXCEPTION 'F470: rollback blocked by EAN issuance, aliases or rotation history';
                 END IF;
             END $guard$;
             DROP FUNCTION catalog.f470_aprobar_rotacion(uuid,uuid);
