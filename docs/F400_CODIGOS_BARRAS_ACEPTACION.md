@@ -203,3 +203,19 @@ La Preview donde se ejecutó F425 fue el despliegue protegido `dpl_9VVqscPZRXHbx
 La medida evita que una aplicación cliente interprete erróneamente un PUT 200 como aprobación de rotación cuando el backend estaba ignorando el campo en silencio. Se añadieron pruebas unitarias con EF InMemory para Admin/Vendedor, con y sin `codigoEAN` y solicitando reemplazo o borrado. El EAN histórico debe permanecer vinculado al producto original. La migración de aliases y auditoría de rotación está separada en [issue #71](https://github.com/Marzza01/ERP-Log-stica-/issues/71); **no es funcionalidad implementada aquí**.
 
 **Puerta F400 pendiente de aceptación expresa:** el equipo debe aceptar formalmente que la capacidad de *cambiar/regenerar* EAN históricos del fork se entrega aparte bajo #71. No declarar probado hardware ni autorizar `main`/Production por este cambio.
+
+## F428–F429 — escaneo sin verificación y resultados asíncronos obsoletos (15-nov-2026)
+
+**Se corrigieron dos fallos reales de la UI del escáner** únicamente en `development`:
+
+1. **F428 (fail closed):** la pantalla de conteo creaba un formulario de cantidad en cuanto se escaneaba un EAN-13 válido, antes de recibir una respuesta positiva de `GET /api/productos/por-codigo/{ean}`. Los fallos de transporte, HTTP 403/429/5xx no descartaban la lectura pendiente, por lo que podían ofrecer un botón de guardar para un producto no verificado. Ahora el botón, las opciones de ubicación y el campo de cantidad permanecen deshabilitados hasta tener un producto confirmado por la API; ante error se descarta la entrada sin POST de inventario, con un mensaje al operador.
+2. **F429 (respuesta obsoleta):** si se descartaba una lectura pendiente y se repetía el mismo EAN, un error tardío del intento anterior podía borrar el nuevo formulario. Cada intento tiene una identificación `lecturaId` y una referencia activa de lookup, y solo la respuesta asociada al intento actual puede confirmar o descartar su formulario. No se modificó la idempotencia del POST de conteo ni se alteró el backend.
+
+**Evidencia técnica:**
+
+- [Commit F428 `01d27ab`](https://github.com/Marzza01/ERP-Log-stica-/commit/01d27ab9c4ab39583ddab3b0b4739503fff6f2df) y [commit F429 `f86ecc8`](https://github.com/Marzza01/ERP-Log-stica-/commit/f86ecc813b1dae7471788124ba803eea884a42ad).
+- [CI push #43760928437](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43760928437) y [PR CI #43760932560](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43760932560): **4/4 SUCCESS** en ambos. .NET: **912/912** (Core 10, Catalog 177, Finance 725). Frontend/Chromium/Windows PASS.
+- Paso real de Chromium `F411_SCANNER_CAMERA_UI_PASS`: `f428LookupFailClosed:true`, `f428UnverifiedCannotSave:true`, `f429StaleLookupCannotClearNewScan:true`, `offlineRetrySameUuid:true`, `remoteApiCalls:0`. Se simuló HTTP 503, desconexión de red y respuestas fuera de orden; no se realizaron POST de inventario antes de cantidad confirmada.
+- Vercel Preview `dpl_3Z8qNefdkyWo1JSgEG11wPpSCHzq` reporta **READY** para `development@f86ecc8`. Render Desarrollo permanece en `ce5bc3c`, la última versión con cambios backend, y no necesita redeploy por estos cambios exclusivos de React/tests.
+
+**Límites de certificación:** F428/F429 mejoran la confiabilidad funcional, pero **F398 permanece abierto** porque el lector, la cámara y la impresora físicos no fueron probados. F400 aún exige aceptación del alcance sin rotación histórica (issue #71) y revisión/aceptación final de la PR #68; #65 sigue gobernando la integración productiva.
