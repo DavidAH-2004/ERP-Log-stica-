@@ -73,8 +73,19 @@ async function mockApi(page){
   return s;
 }
 async function login(page,email){
+  const errors=[];
+  page.on('pageerror', error => errors.push(error.message));
   await page.goto(origin+'/login');
-  await page.getByPlaceholder('nombre@ejemplo.com').fill(email);
+  const emailBox=page.getByPlaceholder('nombre@ejemplo.com');
+  try {
+    await emailBox.waitFor({state:'visible',timeout:10000});
+  } catch (error) {
+    const body=await page.locator('body').innerText().catch(()=>'<unavailable>');
+    throw new Error('F411 login view not ready; url='+page.url()+
+      '; body='+body.slice(0,650)+'; browserErrors='+errors.slice(0,3).join(' | ')+
+      '; Vite='+output.slice(-300),{cause:error});
+  }
+  await emailBox.fill(email);
   await page.locator('input[type=password]').fill('f411-local-fixture-only');
   await page.getByRole('button',{name:'Ingresar al sistema'}).click();
   await page.waitForFunction(()=>!!localStorage.getItem('erp_token'),null,{timeout:10000});
