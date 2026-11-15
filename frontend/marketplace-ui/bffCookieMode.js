@@ -97,6 +97,28 @@ function isJwtShaped(value) {
 }
 
 /**
+ * Never extend a cookie session to the full JWT lifetime on browser reload.
+ * The proxy verifies bearer validity upstream; this local parse only computes
+ * the earlier of JWT expiry, API expiry and issue time + 15 minutes.
+ */
+function boundedExpiry(token, expiresAt) {
+  if (!isJwtShaped(token)) return null;
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const data = JSON.parse(atob(part.padEnd(Math.ceil(part.length / 4) * 4, '=')));
+    const iat = data?.iat;
+    const exp = data?.exp;
+    const server = Date.parse(expiresAt ?? '');
+    if (!Number.isSafeInteger(iat) || !Number.isSafeInteger(exp) ||
+        !Number.isFinite(server) || iat <= 0 || exp <= iat) return null;
+    const bounded = Math.min(server, exp * 1000, iat * 1000 + 900_000);
+    return bounded > Date.now() ? new Date(bounded).toISOString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Opt-in only. The Vercel middleware calls this ONLY when VERCEL_ENV=preview
  * and ERP_COOKIE_BFF_MODE=enabled. No direct client-supplied upstream origin.
  */
@@ -135,8 +157,8 @@ export async function bffCookieProxy(request, upstreamOrigin, fetchImpl = fetch)
           [400, 401, 403, 429].includes(upstream.status) ? upstream.status : 502);
       }
       const result = await upstream.json();
-      const rawExpiry = Date.parse(result?.expiresAt ?? '');
-      const duration = Math.floor((rawExpiry - Date.now()) / 1000);
+      const expiry = boundedExpiry(result?.token, result?.expiresAt);
+      const duration = Math.floor((Date.parse(expiry ?? '') - Date.now()) / 1000);
       if (!isJwtShaped(result?.token) || !['Admin', 'Vendedor', 'Comprador'].includes(result?.rol) ||
           result.rol !== result.role || typeof result.usuario !== 'string' ||
           !Number.isFinite(duration) || duration < 1) {
@@ -191,10 +213,12 @@ export async function bffCookieProxy(request, upstreamOrigin, fetchImpl = fetch)
           !csrf || csrf.length !== 43) {
         return json({ mensaje: 'Sesión no disponible.' }, 502);
       }
+      const expiry = boundedExpiry(token, result.expiresAt);
+      if (!expiry) return json({ mensaje: 'Sesión expirada.' }, 401);
       return json({
         usuario: result.usuario, rol: result.rol, role: result.role,
         email: result.email, vendedorId: result.vendedorId,
-        expiresAt: result.expiresAt, csrfToken: csrf,
+        expiresAt: expiry, csrfToken: csrf,
       });
     }
     return safeResponse(upstream);
