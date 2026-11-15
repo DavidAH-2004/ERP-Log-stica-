@@ -17,7 +17,8 @@ $secure=$null;$password=$null;$token=$null;$payload=$null;$loginRaw=$null;$login
 
 function PreviewGet([string]$path,[string]$jwt){
  if($path -cne '/api/productos/etiquetas' -and $path -cne '/api/inventario/conteos-ciclicos/sesiones' -and $path -notmatch '^/api/productos/por-codigo/[0-9]{13}$'){throw 'F424_ROUTE_DENIED'}
- $raw=(& $cli curl $path --deployment $DeploymentId -- --silent --show-error --max-redirs 0 --request GET --header ('Authorization: Bearer '+$jwt) --write-out 'F424_HTTP=%{http_code}' 2>$null | Out-String)
+ $headerLine='Authorization: Bearer '+$jwt+[Environment]::NewLine
+ $raw=($headerLine | & $cli curl $path --deployment $DeploymentId -- --silent --show-error --max-redirs 0 --request GET --header '@-' --write-out 'F424_HTTP=%{http_code}' 2>$null | Out-String)
  if($LASTEXITCODE -ne 0 -or $raw -notmatch 'F424_HTTP=(\d{3})'){throw 'F424_PREVIEW_UNAVAILABLE'}
  return [pscustomobject]@{status=[int]$Matches[1];content=($raw -split 'F424_HTTP=',2)[0].Trim()}
 }
