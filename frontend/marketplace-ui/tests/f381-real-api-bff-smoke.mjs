@@ -287,6 +287,44 @@ assert.equal((await call(request(
   '/api/productos/etiquetas?ids=not-a-uuid', 'GET', {
     cookie: cookies.header,
   }))).status, 400, 'Malformed label selections must fail validation');
+// F413: positive seller-owned barcode lookup, not merely a 200 with empty labels.
+// Bind a disposable Seller account to F105 Seller A (who owns fixtureA),
+// then prove the same real API/BFF can return the product and its label.
+// All credentials, users and EAN writes exist ONLY in temporary CI PostgreSQL.
+const ownerEmail = 'f413-owner-' + nonce + '@erp.invalid';
+const createOwner = await call(request('/api/usuarios', 'POST',
+  adminMutatingHeaders, {
+    email: ownerEmail, password: sellerPassword, nombre: 'F413 Owner Seller',
+    rol: 'Vendedor', vendedorId: 'f1050000-0000-4000-8000-000000000001'
+  }));
+assert.equal(createOwner.status, 201, 'F413 owner QA user must exist only in disposable CI');
+const ownerSession = await roleSession(ownerEmail, sellerPassword, 'Vendedor');
+const ownerLabelsResponse = await call(request('/api/productos/etiquetas?ids=' + fixtureA,
+  'GET', {cookie: ownerSession.cookies}));
+assert.equal(ownerLabelsResponse.status, 200);
+const ownerLabels = await ownerLabelsResponse.json();
+assert.equal(ownerLabels.length, 1, 'Owner must see own selected label');
+assert.equal(ownerLabels[0].id, fixtureA);
+assert.equal(ownerLabels[0].codigoEAN, issued[0].codigoEAN);
+const ownerSearch = await call(request('/api/productos/por-codigo/' + issued[0].codigoEAN,
+  'GET', {cookie: ownerSession.cookies}));
+assert.equal(ownerSearch.status, 200, 'Owner must resolve their EAN to the same product');
+assert.equal((await ownerSearch.json()).id, fixtureA);
+const otherVendorProductId = 'f1050000-0000-4000-8000-000000000021';
+const crossVendorSelection = await call(request(
+  '/api/productos/etiquetas?ids=' + otherVendorProductId,
+  'GET', {cookie: ownerSession.cookies}));
+assert.equal(crossVendorSelection.status, 200);
+assert.deepEqual(await crossVendorSelection.json(), [],
+  'Even a valid Seller A session must not see Seller B label selections');
+console.log('F413_POSITIVE_OWNER_BARCODE_LOOKUP_PASS ' + JSON.stringify({
+  sellerOwnLabelSelected: 1,
+  sellerOwnBarcodeLookup: 200,
+  crossVendorLabels: 0,
+  accountProvisionedIn: 'CI disposable PostgreSQL only',
+  productionTouched: false
+}));
+
 console.log('F412_LABEL_SELECTION_ISOLATION_PASS ' + JSON.stringify({
   adminSelected: 1,
   sellerCrossOwnerSelected: 0,
