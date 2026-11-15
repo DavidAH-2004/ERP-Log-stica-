@@ -51,7 +51,9 @@ var jwtSettings = builder.Configuration
     .Get<JwtSettings>()
     ?? throw new InvalidOperationException("La configuración JWT es obligatoria. Verifica appsettings.json o variables de entorno.");
 
-builder.Services.AddMarketplaceSecurity(jwtSettings);
+// F360: enable only after Core migration + staged cutover verification.
+builder.Services.AddMarketplaceSecurity(jwtSettings,
+    builder.Configuration.GetValue<bool>("Auth:EnableSessionVersionCheck"));
 
 // ── Rate Limiting nativo para Login ───────────────────────────────────────────
 builder.Services.AddRateLimiter(options =>
