@@ -70,7 +70,11 @@ public static class DeploymentHttpSecurity
                (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
                (b[0] == 192 && b[1] == 168) ||
                (b[0] == 169 && b[1] == 254) ||
-               (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
+               (b[0] == 100 && b[1] >= 64 && b[1] <= 127) ||
+               // F450: protocol assignments and benchmarking addresses
+               // are not valid routable client IPs for login partitioning.
+               (b[0] == 192 && b[1] == 0 && b[2] == 0) ||
+               (b[0] == 198 && (b[1] == 18 || b[1] == 19));
     }
 
     /// <summary>
