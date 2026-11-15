@@ -272,3 +272,23 @@ test('BFF rechaza JWT cuyo período máximo de 15 minutos ya venció', async () 
     assert.equal(res.headers.get('set-cookie'), null);
   });
 });
+
+
+test('BFF no borra cookies ni confirma logout si API no confirma la revocación', async () => {
+  let hits = 0;
+  await withBff(async () => {
+    hits++;
+    return new Response(JSON.stringify({ mensaje: 'Revocación no habilitada' }), {
+      status: 503, headers: { 'content-type': 'application/json' },
+    });
+  }, async proxy => {
+    const csrf = 'r'.repeat(43);
+    const cookies = '__Host-erp_session=' + jwt + '; __Host-erp_csrf=' + csrf;
+    const res = await proxy(request('/api/auth/logout', 'POST', {
+      origin: previewOrigin, cookie: cookies, 'x-erp-csrf': csrf,
+    }));
+    assert.equal(res.status, 503);
+    assert.equal(res.headers.get('set-cookie'), null);
+    assert.equal(hits, 1);
+  });
+});
