@@ -105,6 +105,8 @@ builder.Services.AddFinanceServices(builder.Configuration, builder.Environment.I
 builder.Services.AddScoped<MarketplaceERP.API.Services.ReservasExpiracionService>();
 // F402: asignación explícita de EAN, sin normalización automática al iniciar.
 builder.Services.AddScoped<MarketplaceERP.Catalog.Services.CodigoBarrasAsignacionService>();
+// F470: Admin two-person rotation is enabled only with BOTH barcode flags.
+builder.Services.AddScoped<MarketplaceERP.Catalog.Services.RotacionEanService>();
 builder.Services.AddScoped<MarketplaceERP.API.Services.OrdenEvaluacionService>();
 
 builder.Services.AddControllers(options =>
