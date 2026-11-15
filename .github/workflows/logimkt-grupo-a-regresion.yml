@@ -1,10 +1,8 @@
-name: LOGIMKT Grupo A - Regresion
+name: LOGIMKT Grupo A - Regresion (historical/manual)
 
+# F348: la rama integracion-auditoria-grupo-a ya no existe.
+# Conservar la herramienta solo para revisión manual; el CI oficial es ci.yml.
 on:
-  push:
-    branches: [integracion-auditoria-grupo-a]
-  pull_request:
-    branches: [integracion-auditoria-grupo-a]
   workflow_dispatch:
 
 permissions:
