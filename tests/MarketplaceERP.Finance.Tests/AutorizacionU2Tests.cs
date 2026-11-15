@@ -265,7 +265,7 @@ public class AutorizacionU2Tests
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // Ninguna autorización queda implícita.
         Assert.Equal(28, controllers.Length);
         Assert.Equal(98, actions); // F360 agrega POST api/auth/logout autorizado.
-        Assert.Equal(98, routes); // Productos/GetAlertasStock tiene dos alias.
+        Assert.Equal(99, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]
