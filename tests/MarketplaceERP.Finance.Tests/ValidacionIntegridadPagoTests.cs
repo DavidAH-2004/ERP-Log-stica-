@@ -131,6 +131,8 @@ public sealed class ValidacionIntegridadPagoTests
             .ConsultarReembolsoAsync("refund-qa-key-01");
         Assert.Equal(EstadoReembolsoProveedor.Desconocido, result.Estado);
         Assert.Null(result.ReembolsoId);
+        provider.Verify(g => g.ConsultarReembolsoAsync("refund-qa-key-01",
+            It.IsAny<CancellationToken>()), Times.Once);
         provider.VerifyNoOtherCalls();
     }
 
@@ -144,6 +146,8 @@ public sealed class ValidacionIntegridadPagoTests
             .ConsultarEstadoAsync("PAY-TEST-VALID");
         Assert.Equal(EstadoCobroProveedor.Confirmado, result.Estado);
         Assert.Equal("TXN-QA-123", result.TransaccionId);
+        provider.Verify(g => g.ConsultarEstadoAsync("PAY-TEST-VALID",
+            It.IsAny<CancellationToken>()), Times.Once);
         provider.VerifyNoOtherCalls();
     }
 

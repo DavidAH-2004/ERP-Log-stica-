@@ -21,22 +21,26 @@ public static class DeploymentHttpSecurity
         renderServiceName is "marketplaceerp-api" or "marketplaceerp-api-staging";
 
     /// <summary>
-    /// F388: Render's public ingress overwrites CF-Connecting-IP with the
-    /// Cloudflare-observed peer IP. Never trust arbitrary X-Forwarded-For,
-    /// Vercel request headers, or the same CF header on a non-Render host.
-    /// A direct Render client and an upstream Vercel proxy are distinct:
-    /// for Vercel traffic this IP identifies Vercel's egress, NOT the browser.
-    /// Until a signed edge identity exists, this is an in-memory best-effort
-    /// partition, not a distributed per-browser rate limit.
+    /// F458: service name alone does NOT authenticate a request header.
+    /// Until the actual ingress topology and CF-Connecting-IP overwriting have
+    /// been independently verified, use only the connection's peer address.
+    /// An explicit opt-in is available for a verified edge; never trust XFF.
+    /// For Vercel traffic the peer may be a proxy rather than the browser.
+    /// This local partition is NOT a distributed per-browser rate limit.
     /// </summary>
-    public static string LoginRateLimitPartition(HttpContext context, string? renderServiceName)
+    public static string LoginRateLimitPartition(
+        HttpContext context, string? renderServiceName, bool confiarCabeceraCfVerificada = false)
     {
         var direct = context.Connection.RemoteIpAddress;
         var fallback = direct?.IsIPv4MappedToIPv6 == true
             ? direct.MapToIPv4().ToString()
             : direct?.ToString() ?? "unknown";
 
-        if (renderServiceName is not ("marketplaceerp-api" or "marketplaceerp-api-staging"))
+        // An arbitrary client may supply a plausible CF header. No header can
+        // partition login attempts unless the operator has verified rewriting
+        // by the trusted Render ingress for the exact service.
+        if (!confiarCabeceraCfVerificada ||
+            renderServiceName is not ("marketplaceerp-api" or "marketplaceerp-api-staging"))
             return fallback;
 
         var values = context.Request.Headers["CF-Connecting-IP"];

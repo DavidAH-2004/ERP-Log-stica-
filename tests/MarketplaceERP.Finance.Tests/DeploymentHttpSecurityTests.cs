@@ -88,14 +88,15 @@ public class DeploymentHttpSecurityTests
     [Theory]
     [InlineData("marketplaceerp-api")]
     [InlineData("marketplaceerp-api-staging")]
-    public void F388_RenderConfiaSoloEnIpSobrescritaPorCloudflare(string renderService)
+    public void F458_AceptaIpCfSoloSiOperadorCertificoIngress(string renderService)
     {
         var context = new DefaultHttpContext();
         context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.11");
         context.Request.Headers["X-Forwarded-For"] = "10.0.0.1, 203.0.113.99";
         context.Request.Headers["CF-Connecting-IP"] = "8.8.8.8";
         Assert.Equal("8.8.8.8",
-            DeploymentHttpSecurity.LoginRateLimitPartition(context, renderService));
+            DeploymentHttpSecurity.LoginRateLimitPartition(
+                context, renderService, confiarCabeceraCfVerificada: true));
     }
 
     [Theory]
@@ -110,7 +111,8 @@ public class DeploymentHttpSecurityTests
         context.Request.Headers["X-Forwarded-For"] = "203.0.113.11";
         context.Request.Headers["CF-Connecting-IP"] = "203.0.113.12";
         Assert.Equal("198.51.100.12",
-            DeploymentHttpSecurity.LoginRateLimitPartition(context, renderService));
+            DeploymentHttpSecurity.LoginRateLimitPartition(
+                context, renderService, confiarCabeceraCfVerificada: true));
     }
 
     [Theory]
@@ -141,7 +143,8 @@ public class DeploymentHttpSecurityTests
         context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.13");
         context.Request.Headers["CF-Connecting-IP"] = value;
         Assert.Equal("198.51.100.13",
-            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api-staging"));
+            DeploymentHttpSecurity.LoginRateLimitPartition(
+                context, "marketplaceerp-api-staging", confiarCabeceraCfVerificada: true));
     }
 
     [Fact]
@@ -152,7 +155,8 @@ public class DeploymentHttpSecurityTests
         context.Request.Headers["CF-Connecting-IP"] =
             new Microsoft.Extensions.Primitives.StringValues(new[] { "203.0.113.1", "203.0.113.2" });
         Assert.Equal("198.51.100.15",
-            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api"));
+            DeploymentHttpSecurity.LoginRateLimitPartition(
+                context, "marketplaceerp-api", confiarCabeceraCfVerificada: true));
     }
 
     [Fact]
@@ -162,7 +166,21 @@ public class DeploymentHttpSecurityTests
         context.Connection.RemoteIpAddress = IPAddress.Parse("::ffff:192.0.2.35");
         context.Request.Headers["X-Forwarded-For"] = "203.0.113.100";
         Assert.Equal("192.0.2.35",
-            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api"));
+            DeploymentHttpSecurity.LoginRateLimitPartition(
+                context, "marketplaceerp-api", confiarCabeceraCfVerificada: true));
     }
 
+    [Theory]
+    [InlineData("marketplaceerp-api")]
+    [InlineData("marketplaceerp-api-staging")]
+    [InlineData("desconocido")]
+    public void F458_PorDefectoIgnoraHeaderCFArbitrario(string service)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("192.0.2.20");
+        context.Request.Headers["CF-Connecting-IP"] = "8.8.8.8";
+        context.Request.Headers["X-Forwarded-For"] = "9.9.9.9";
+        Assert.Equal("192.0.2.20",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, service));
+    }
 }
