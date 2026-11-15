@@ -40,7 +40,7 @@ const fulfill=(route,body,status=200)=>route.fulfill({
 });
 async function mockApi(page){
   const s={posts:[],failNext:false,successful:0,external:0};
-  await page.route('**/api/**',async route=>{
+  await page.route(url=>url.pathname.startsWith('/api/'),async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
     if(url.hostname!=='127.0.0.1'){s.external++;return route.abort();}
     if(path==='/api/auth/login'&&method==='POST'){
