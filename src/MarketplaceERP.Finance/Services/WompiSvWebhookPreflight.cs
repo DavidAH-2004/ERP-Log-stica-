@@ -30,7 +30,7 @@ public static class WompiSvWebhookPreflight
 
         try
         {
-            using var doc = JsonDocument.Parse(rawBody, new JsonDocumentOptions
+            using var doc = JsonDocument.Parse(rawBody.ToArray(), new JsonDocumentOptions
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
