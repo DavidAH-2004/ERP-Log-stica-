@@ -81,4 +81,70 @@ public sealed class ValidacionIntegridadPagoTests
             Times.Once);
         gateway.VerifyNoOtherCalls();
     }
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" TXN-PROVEEDOR")]
+    [InlineData("TXN-PROVEEDOR\n")]
+    public async Task F459_ConfirmedChargeWithoutSafeProviderIdIsUncertain(string? transaction)
+    {
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+        provider.Setup(g => g.ConsultarEstadoAsync(
+            "PAY-TEST-VALID", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConsultaPagoResult(EstadoCobroProveedor.Confirmado, transaction));
+        var result = await new PasarelaRecuperacionValidada(provider.Object)
+            .ConsultarEstadoAsync("PAY-TEST-VALID");
+        Assert.Equal(EstadoCobroProveedor.Desconocido, result.Estado);
+        Assert.Null(result.TransaccionId);
+        provider.Verify(g => g.ConsultarEstadoAsync(
+            "PAY-TEST-VALID", It.IsAny<CancellationToken>()), Times.Once);
+        provider.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("REFUND-ID\n")]
+    public async Task F459_CompletedRefundWithoutSafeIdRemainsUncertain(string refundId)
+    {
+        var request = Request();
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+        provider.Setup(g => g.ReembolsarAsync(request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReembolsoPagoResult(EstadoReembolsoProveedor.Completado, refundId));
+        var guarded = new PasarelaRecuperacionValidada(provider.Object);
+        var result = await guarded.ReembolsarAsync(request);
+        Assert.Equal(EstadoReembolsoProveedor.Desconocido, result.Estado);
+        Assert.Null(result.ReembolsoId);
+        // Do not automatically issue another refund after uncertain response.
+        provider.Verify(g => g.ReembolsarAsync(request, It.IsAny<CancellationToken>()),
+            Times.Once);
+        provider.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task F459_RefundInquiryWithoutIdCannotBeConfirmed()
+    {
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+        provider.Setup(g => g.ConsultarReembolsoAsync("refund-qa-key-01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReembolsoPagoResult(EstadoReembolsoProveedor.Completado, null));
+        var result = await new PasarelaRecuperacionValidada(provider.Object)
+            .ConsultarReembolsoAsync("refund-qa-key-01");
+        Assert.Equal(EstadoReembolsoProveedor.Desconocido, result.Estado);
+        Assert.Null(result.ReembolsoId);
+        provider.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task F459_ProviderConfirmedWithValidIdRetained()
+    {
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+        provider.Setup(g => g.ConsultarEstadoAsync("PAY-TEST-VALID", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConsultaPagoResult(EstadoCobroProveedor.Confirmado, "TXN-QA-123"));
+        var result = await new PasarelaRecuperacionValidada(provider.Object)
+            .ConsultarEstadoAsync("PAY-TEST-VALID");
+        Assert.Equal(EstadoCobroProveedor.Confirmado, result.Estado);
+        Assert.Equal("TXN-QA-123", result.TransaccionId);
+        provider.VerifyNoOtherCalls();
+    }
+
 }
