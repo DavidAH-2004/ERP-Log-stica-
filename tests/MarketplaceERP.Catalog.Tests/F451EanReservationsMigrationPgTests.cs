@@ -285,6 +285,7 @@ public sealed class F451EanReservationsMigrationPgTests
 
                 Assert.Equal("Ejecutada", await svc.AprobarAsync(requestOne, approver));
                 Assert.Equal("Ejecutada", await svc.AprobarAsync(requestOne, approver));
+                db.ChangeTracker.Clear(); // SQL function bypasses EF tracked instances.
                 Assert.Equal(second,
                     (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
 
@@ -297,6 +298,7 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal("Solicitada", await svc.SolicitarAsync(
                     requestTwo, p1.Id, third, justification, requester));
                 Assert.Equal("Ejecutada", await svc.AprobarAsync(requestTwo, approver));
+                db.ChangeTracker.Clear();
                 Assert.Equal(third,
                     (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
 
