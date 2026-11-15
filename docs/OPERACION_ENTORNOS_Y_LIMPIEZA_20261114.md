@@ -56,11 +56,11 @@ Se encontraron **tres proyectos Neon** en la organización:
 
 | Riesgo/tarea | Registro responsable |
 | --- | --- |
-| Puertas completas de producción, secretos/configuración, rollback y release | [Issue #65](../issues/65), [#57](../issues/57), [#61](../issues/61) |
-| Autenticación `localStorage`, CSRF, rate limiting, idempotencia de pagos reales | [#49](../issues/49), [#53](../issues/53) |
-| Dependencias frontend: 6 avisos **moderados de desarrollo**, runtime 0 en auditoría F341 | [#51](../issues/51) |
-| Escaneo del historial Git público, CODEOWNERS, workflow legado, backups off-device, demostración Railway | [#63](../issues/63), integrados en plan de [#65](../issues/65) |
+| Puertas completas de producción, secretos/configuración, rollback y release | [Issue #65](https://github.com/Marzza01/ERP-Log-stica-/issues/65), [#57](https://github.com/Marzza01/ERP-Log-stica-/issues/57), [#61](https://github.com/Marzza01/ERP-Log-stica-/issues/61) |
+| Autenticación `localStorage`, CSRF, rate limiting, idempotencia de pagos reales | [#49](https://github.com/Marzza01/ERP-Log-stica-/issues/49), [#53](https://github.com/Marzza01/ERP-Log-stica-/issues/53) |
+| Dependencias frontend: 6 avisos **moderados de desarrollo**, runtime 0 en auditoría F341 | [#51](https://github.com/Marzza01/ERP-Log-stica-/issues/51) |
+| Escaneo del historial Git público, CODEOWNERS, workflow legado, backups off-device, demostración Railway | [#63](https://github.com/Marzza01/ERP-Log-stica-/issues/63), integrados en plan de [#65](https://github.com/Marzza01/ERP-Log-stica-/issues/65) |
 
 No alterar pruebas aprobadas sin necesidad; las futuras auditorías deben identificar commit, hora, entorno, scope de conexión y resultado reproducible.
 
-**Evidencia:** [Issue #65, F330–F340](../issues/65); [Issue #63](../issues/63); [Issue #51, F341](../issues/51).
+**Evidencia:** [Issue #65, F330–F340](https://github.com/Marzza01/ERP-Log-stica-/issues/65); [Issue #63](https://github.com/Marzza01/ERP-Log-stica-/issues/63); [Issue #51, F341](https://github.com/Marzza01/ERP-Log-stica-/issues/51).
