@@ -4,7 +4,11 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { ShoppingBag, Search, Plus, Filter, AlertCircle, RefreshCw, Edit2, Trash2 } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Filter, AlertCircle, RefreshCw, Edit2, Trash2, Printer, Camera } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import CodigoBarrasSvg from '../../components/ui/CodigoBarrasSvg';
+import EscanerCamaraModal from './EscanerCamaraModal';
+import { esEan13Valido } from '../../utils/ean13';
 import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
@@ -13,6 +17,10 @@ import { productosApi, type CrearProductoRequest, type OpcionesAltaProducto } fr
 import type { Producto } from '../../types';
 
 export default function ProductosPage() {
+  const navigate = useNavigate();
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(() => new Set());
+  const [escanerAbierto, setEscanerAbierto] = useState(false);
+  const [codigoEditado, setCodigoEditado] = useState('');
   const [productos, setProductos] = useState<Producto[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -105,6 +113,7 @@ export default function ProductosPage() {
 
   const handleOpenCrear = () => {
     setEditingId(null);
+    setCodigoEditado('');
     setForm({
       sku: '',
       nombre: '',
@@ -129,6 +138,7 @@ export default function ProductosPage() {
 
   const handleOpenEditar = (p: Producto) => {
     setEditingId(p.id);
+    setCodigoEditado(p.codigoEAN ?? '');
     setForm({
       sku: p.sku,
       nombre: p.nombre,
@@ -192,6 +202,22 @@ export default function ProductosPage() {
     }
   };
 
+  const alternarEtiqueta = (id: string, activo: boolean) => {
+    setSeleccionados(actual => {
+      const copia = new Set(actual);
+      if (activo && copia.size >= 100 && !copia.has(id)) return actual;
+      if (activo) copia.add(id);
+      else copia.delete(id);
+      return copia;
+    });
+  };
+
+  const abrirEtiquetasSeleccionadas = () => {
+    const ids = [...seleccionados];
+    if (ids.length === 0) return;
+    navigate('/productos/etiquetas?ids=' + ids.map(encodeURIComponent).join(','));
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {/* Header */}
@@ -204,7 +230,15 @@ export default function ProductosPage() {
             Catálogo paginado. Las existencias mostradas corresponden únicamente a los productos de esta página.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <button className="btn btn-secondary" type="button" disabled={seleccionados.size === 0}
+            onClick={abrirEtiquetasSeleccionadas}>
+            <Printer size={15} /> Etiquetas ({seleccionados.size})
+          </button>
+          <button className="btn btn-secondary" type="button"
+            onClick={() => navigate('/productos/etiquetas?todos=1')}>
+            Hojas del catálogo
+          </button>
           <button
             onClick={loadData}
             style={{
@@ -304,6 +338,10 @@ export default function ProductosPage() {
           />
         </div>
 
+        <button className="btn btn-secondary" type="button"
+          onClick={() => setEscanerAbierto(true)}>
+          <Camera size={15} /> Escanear cámara
+        </button>
         <div style={{ width: '220px' }}>
           <input
             type="search"
@@ -324,9 +362,29 @@ export default function ProductosPage() {
       <DataTable
         columns={[
           {
+            header: 'Etiqueta',
+            key: 'etiqueta',
+            sortable: false,
+            render: (row) => (
+              <input type="checkbox" checked={seleccionados.has(row.id)}
+                aria-label={'Seleccionar etiqueta de ' + row.sku}
+                onChange={e => alternarEtiqueta(row.id, e.target.checked)} />
+            ),
+          },
+          {
             header: 'SKU',
             accessor: 'sku',
             render: (row) => <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--accent)' }}>{row.sku}</span>,
+          },
+          {
+            header: 'EAN-13',
+            key: 'codigoEAN',
+            sortable: false,
+            render: (row) => (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
+                {row.codigoEAN && esEan13Valido(row.codigoEAN) ? row.codigoEAN : 'Sin EAN válido'}
+              </span>
+            ),
           },
           {
             header: 'Nombre del Producto',
@@ -423,6 +481,16 @@ export default function ProductosPage() {
         emptyText="No se encontraron productos coincidentes."
       />
 
+      <EscanerCamaraModal abierto={escanerAbierto}
+        onCerrar={() => setEscanerAbierto(false)}
+        onCodigo={codigo => {
+          setEscanerAbierto(false);
+          setSelectedCat('');
+          setPage(1);
+          setSearch(codigo);
+          toast.success('Código detectado', 'Filtrando el catálogo por EAN-13.');
+        }} />
+
       {/* Modal Crear / Editar */}
       {modalOpen && (
         <Modal
@@ -437,6 +505,15 @@ export default function ProductosPage() {
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
           >
+            {editingId && (
+              <div style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div style={{ marginBottom: 6, color: 'var(--text-secondary)' }}>Código EAN actual (solo lectura)</div>
+                <CodigoBarrasSvg codigo={codigoEditado} alto={60} style={{ maxWidth: '100%' }} />
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  El EAN existente no se modifica al editar el producto.
+                </p>
+              </div>
+            )}
             {!editingId && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {errorOpciones && (

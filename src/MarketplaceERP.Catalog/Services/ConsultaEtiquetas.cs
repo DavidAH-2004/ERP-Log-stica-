@@ -15,9 +15,15 @@ public static class ConsultaEtiquetas
     /// la pantalla avisa cuáles no tienen código. Siempre ordenados por SKU.
     /// </summary>
     public static async Task<List<EtiquetaProducto>> ObtenerAsync(
-        CatalogDbContext db, IReadOnlyCollection<Guid>? ids, CancellationToken ct = default)
+        CatalogDbContext db, IReadOnlyCollection<Guid>? ids,
+        Guid? vendedorId = null, CancellationToken ct = default)
     {
+        if (ids is { Count: > 100 })
+            throw new ArgumentOutOfRangeException(nameof(ids), "Máximo 100 productos seleccionados.");
+
         var consulta = db.Productos.AsNoTracking();
+        if (vendedorId.HasValue)
+            consulta = consulta.Where(p => p.VendedorId == vendedorId.Value);
 
         consulta = ids is null
             ? consulta.Where(p => p.EstaPublicado && p.CodigoEAN != "")
@@ -26,6 +32,7 @@ public static class ConsultaEtiquetas
         return await consulta
             .OrderBy(p => p.Sku)
             .Select(p => new EtiquetaProducto(p.Id, p.Sku, p.Nombre, p.CodigoEAN ?? string.Empty))
+            .Take(501) // Límite de seguridad: la API rechaza listados mayores de 500.
             .ToListAsync(ct);
     }
 }

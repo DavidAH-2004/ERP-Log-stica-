@@ -1,0 +1,89 @@
+/*
+ * Hoja de etiquetas Avery 5160 (carta, 3 × 10). Las medidas deben coincidir con AVERY_5160
+ * en EtiquetasPage.tsx; se inyectan como variables CSS desde allí.
+ */
+
+.hoja-etiquetas {
+  width: var(--pagina-ancho);
+  height: var(--pagina-alto);
+  padding: var(--margen-superior) var(--margen-lateral);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: repeat(var(--columnas), var(--etiqueta-ancho));
+  grid-template-rows: repeat(var(--filas), var(--etiqueta-alto));
+  column-gap: var(--separacion-columnas);
+  background: #fff;
+  color: #000;
+  overflow: hidden;
+}
+
+.etiqueta {
+  box-sizing: border-box;
+  padding: 1.2mm 2mm;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.etiqueta-nombre,
+.etiqueta-sku {
+  width: 100%;
+  font-size: 7pt;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.etiqueta-nombre { font-weight: 700; }
+
+.etiqueta-barras {
+  width: 37mm;
+  height: auto;
+  display: block;
+}
+
+/* Vista previa en pantalla: borde de cada etiqueta para ver la posición */
+.vista-previa .hoja-etiquetas {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+  margin-bottom: 1.5rem;
+}
+
+.vista-previa .etiqueta {
+  outline: 1px dashed #c7c7d1;
+}
+
+.vista-previa .etiqueta-vacia {
+  background: repeating-linear-gradient(45deg, #f4f4f7, #f4f4f7 6px, #fff 6px, #fff 12px);
+}
+
+/*
+ * Las hojas para imprimir viven fuera de #root (portal) y solo aparecen al imprimir.
+ * Vite deja este CSS cargado al salir de la página, así que todo lo que afecta la impresión
+ * depende de la clase body.imprimiendo-etiquetas, que EtiquetasPage pone y quita. La regla
+ * @page (no se puede limitar con clases) la inyecta EtiquetasPage solo mientras está abierta.
+ */
+.impresion-etiquetas { display: none; }
+
+@media print {
+  body.imprimiendo-etiquetas,
+  html:has(body.imprimiendo-etiquetas) { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+
+  body.imprimiendo-etiquetas #root { display: none !important; }
+
+  body.imprimiendo-etiquetas .impresion-etiquetas { display: block; }
+
+  .impresion-etiquetas .hoja-etiquetas {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .impresion-etiquetas .hoja-etiquetas:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
