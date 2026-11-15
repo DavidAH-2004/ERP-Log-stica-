@@ -443,7 +443,9 @@ public class ProductosController : ControllerBase
         // transaccional, nunca por POST directo de Admin o Vendedor.
         // Un identificador externo con checksum válido puede ser declarado,
         // pero su validez matemática no certifica titularidad GS1.
-        var eanSolicitado = producto.CodigoEAN?.Trim();
+        string? eanSolicitado = string.IsNullOrWhiteSpace(producto.CodigoEAN)
+            ? null
+            : producto.CodigoEAN.Trim();
         if (!string.IsNullOrEmpty(eanSolicitado))
         {
             if (!CodigoBarras.EsEan13Valido(eanSolicitado))
