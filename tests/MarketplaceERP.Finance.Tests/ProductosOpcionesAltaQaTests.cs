@@ -203,6 +203,35 @@ public sealed class ProductosOpcionesAltaQaTests
         Assert.Equal(0, await catalog.StockFisico.CountAsync());
     }
 
+    [Fact]
+    public async Task F419_Create_DosProductosDistintosConMismoEan_Devuelven409()
+    {
+        var (catalog, core, seller, _, _) = CrearContexts();
+        await using var cat = catalog;
+        await using var coreContext = core;
+        var category = await core.Categorias.AsNoTracking().FirstAsync();
+        var vendedor = Controller(catalog, "Vendedor", seller.ToString(), core);
+        var admin = Controller(catalog, "Admin", null, core);
+
+        MarketplaceERP.Catalog.Entities.Producto Nuevo(string sku) => new()
+        {
+            Id = Guid.NewGuid(), Sku = sku, Nombre = "Producto F419",
+            CategoriaNombre = category.Nombre, CategoriaId = category.Id,
+            VendedorId = seller, CodigoEAN = "4006381333931",
+            PrecioB2C = 30m, PrecioB2B = 22m,
+            Moneda = "USD", EstadoProducto = "Activo"
+        };
+
+        Assert.IsType<CreatedAtActionResult>(await vendedor.Create(Nuevo("F419-FIRST")));
+        Assert.IsType<ConflictObjectResult>(await admin.Create(Nuevo("F419-ADMIN-DUP")));
+        Assert.IsType<ConflictObjectResult>(await vendedor.Create(Nuevo("F419-SELLER-DUP")));
+        var saved = await catalog.Productos.AsNoTracking().ToListAsync();
+        Assert.Single(saved);
+        Assert.Equal("F419-FIRST", saved[0].Sku);
+        Assert.Equal("4006381333931", saved[0].CodigoEAN);
+        Assert.Equal(0, await catalog.StockFisico.CountAsync());
+    }
+
     private static ProductosController Controller(CatalogDbContext catalog,
         string role, string? claimId, CoreDbContext? core = null)
     {

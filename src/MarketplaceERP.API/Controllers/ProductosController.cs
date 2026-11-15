@@ -433,6 +433,7 @@ public class ProductosController : ControllerBase
     [Authorize(Roles = "Admin,Vendedor")]
     [ProducesResponseType(typeof(Producto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create([FromBody] Producto producto)
     {
         if (producto is null)
@@ -500,6 +501,14 @@ public class ProductosController : ControllerBase
                 return BadRequest(new { mensaje = "El vendedor o la categoría no existen en Core." });
         }
 
+        // F419: prevenir que dos SKU compartan el mismo EAN incluso entre
+        // vendedores. La consulta previa mejora el HTTP de un conflicto
+        // ordinario; el índice único en PostgreSQL protege carreras reales.
+        if (eanSolicitado is not null &&
+            await _dbContext.Productos.AsNoTracking()
+                .AnyAsync(p => p.CodigoEAN == eanSolicitado))
+            return Conflict(new { mensaje = "El EAN ya está asignado a otro producto." });
+
         // Lista blanca de campos maestros. Producto es una entidad EF con
         // navegaciones públicas (Stock, Reservas, Movimientos, etc.) que pueden
         // llegar por JSON; nunca insertar el grafo recibido con DbContext.Add.
@@ -533,7 +542,19 @@ public class ProductosController : ControllerBase
         };
 
         _dbContext.Productos.Add(nuevoProducto);
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (
+            ex.InnerException is Npgsql.PostgresException pg &&
+            pg.SqlState == "23505" &&
+            pg.ConstraintName == "UX_productos_CodigoEAN_no_vacio")
+        {
+            // Otro escritor ganó la carrera: el cliente debe ver 409, no 500.
+            _dbContext.ChangeTracker.Clear();
+            return Conflict(new { mensaje = "El EAN ya está asignado a otro producto." });
+        }
 
         _logger.LogInformation(
             "Producto creado. Id={Id}, SKU={Sku}, Nombre={Nombre}, VendedorId={VendedorId}",

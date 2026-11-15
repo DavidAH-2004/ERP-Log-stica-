@@ -30,17 +30,19 @@ public sealed class F417BarcodeCsvSeedTests
         using var csv = new MemoryStream(Encoding.UTF8.GetBytes(Header + "\n" +
             Row("F417-INVALID", "7410000000001") + "\n" +
             Row("F417-VALID", "4006381333931") + "\n" +
-            Row("F417-EMPTY", "") + "\n"));
+            Row("F417-EMPTY", "") + "\n" +
+            Row("F417-RESERVED", CodigoBarras.GenerarInterno(7)) + "\n"));
 
         var result = await service.ImportarCatalogoCsvAsync(csv, Guid.NewGuid(), Guid.NewGuid());
-        Assert.Equal(3, result.Exitosos);
+        Assert.Equal(4, result.Exitosos);
         Assert.Equal(0, result.Errores);
 
         var products = await db.Productos.AsNoTracking().ToDictionaryAsync(p => p.Sku);
         Assert.Null(products["F417-INVALID"].CodigoEAN);
         Assert.Equal("4006381333931", products["F417-VALID"].CodigoEAN);
         Assert.Null(products["F417-EMPTY"].CodigoEAN);
-        Assert.Equal(3, await db.StockFisico.CountAsync());
+        Assert.Null(products["F417-RESERVED"].CodigoEAN);
+        Assert.Equal(4, await db.StockFisico.CountAsync());
     }
 
     [Fact]

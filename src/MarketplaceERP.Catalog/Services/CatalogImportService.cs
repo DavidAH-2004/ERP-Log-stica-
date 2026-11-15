@@ -130,6 +130,9 @@ public class CatalogImportService : ICatalogImportService
         var errores = new List<string>();
         int exitosos = 0;
         int total = 0;
+        // F419: impedir códigos repetidos entre productos creados en un
+        // mismo archivo antes del SaveChanges de todo el lote.
+        var nuevosEansEnLote = new HashSet<string>(StringComparer.Ordinal);
 
         string? headerLine = await reader.ReadLineAsync(cancellationToken);
         if (headerLine is null)
@@ -302,11 +305,22 @@ public class CatalogImportService : ICatalogImportService
                     // un código diferente invalidaría etiquetas históricas.
                     // NULL permite emitir posteriormente un EAN interno mediante
                     // el flujo autorizado de asignación Admin.
-                    string? eanValido = CodigoBarras.EsEan13Valido(ean) ? ean : null;
+                    string? eanValido = CodigoBarras.EsEan13Valido(ean) &&
+                        !CodigoBarras.EsInterno(ean) ? ean : null;
                     if (ean.Length > 0 && eanValido is null)
                         _logger.LogWarning(
-                            "CSV F417 omitió EAN no conforme para SKU nuevo {Sku}; requiere asignación Admin.",
+                            "CSV omitió EAN no conforme o reservado para SKU nuevo {Sku}; requiere asignación Admin.",
                             sku);
+
+                    // Evitar duplicados tanto en filas de este CSV como frente
+                    // a registros persistidos, sin sustituir ni borrar históricos.
+                    // La restricción F419 en PostgreSQL es el árbitro de carrera.
+                    if (eanValido is not null &&
+                        (!nuevosEansEnLote.Add(eanValido) ||
+                         await _dbContext.Productos.AsNoTracking()
+                             .AnyAsync(p => p.CodigoEAN == eanValido, cancellationToken)))
+                        throw new InvalidOperationException(
+                            $"F419: EAN duplicado al crear SKU {sku}; revisión manual necesaria.");
 
                     producto = new Producto
                     {

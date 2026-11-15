@@ -338,6 +338,64 @@ public sealed class CatalogImportAtomicPostgresTests : IAsyncLifetime
             .SingleAsync(s => s.ProductoId == after.Id)).CantidadTotal);
     }
 
+    [Fact]
+    public async Task F419_CsvConDosSkuDeMismoEan_RollbackTotalEnPostgres()
+    {
+        if (!_created) return;
+
+        static string WithEan(string row, string ean) =>
+            row.Replace("\"Activo\",\"\",\"Ficha\"",
+                "\"Activo\",\"" + ean + "\",\"Ficha\"");
+
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(
+                WithEan(Row("F419-FIRST", "25.00", "20"), "4006381333931"),
+                WithEan(Row("F419-DUP", "25.00", "20"), "4006381333931"));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ImportarCatalogoCsvAsync(csv, Guid.NewGuid(), Guid.NewGuid()));
+        }
+
+        await using var verify = NewContext();
+        Assert.Equal(0, await verify.Productos.CountAsync());
+        Assert.Equal(0, await verify.StockFisico.CountAsync());
+        Assert.Equal(0, await verify.UbicacionesAlmacen.CountAsync());
+    }
+
+    [Fact]
+    public async Task F419_CsvNoPuedeAsignarEanYaPresenteEnOtroSku()
+    {
+        if (!_created) return;
+
+        static string WithEan(string row) =>
+            row.Replace("\"Activo\",\"\",\"Ficha\"",
+                "\"Activo\",\"4006381333931\",\"Ficha\"");
+
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(WithEan(Row("F419-EXIST", "25.00", "15")));
+            Assert.Equal(1, (await service.ImportarCatalogoCsvAsync(csv,
+                Guid.NewGuid(), Guid.NewGuid())).Exitosos);
+        }
+
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(WithEan(Row("F419-NEW", "25.00", "999")));
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.ImportarCatalogoCsvAsync(csv, Guid.NewGuid(), Guid.NewGuid()));
+        }
+
+        await using var verify = NewContext();
+        var original = await verify.Productos.AsNoTracking().SingleAsync();
+        Assert.Equal("F419-EXIST", original.Sku);
+        Assert.Equal("4006381333931", original.CodigoEAN);
+        Assert.Equal(1, await verify.StockFisico.CountAsync());
+        Assert.Equal(15, (await verify.StockFisico.AsNoTracking().SingleAsync()).CantidadTotal);
+    }
+
     public async Task DisposeAsync()
     {
         if (!_created || _adminConnection is null ||
