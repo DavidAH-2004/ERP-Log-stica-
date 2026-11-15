@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - develop
+      - development
       - 'fix/**'
       - 'staging/**'
   pull_request:
     branches:
       - main
-      - develop
+      - development
       - 'staging/**'
 
 permissions:
@@ -149,8 +149,14 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: npm audit --omit=dev --audit-level=high
 
-      # P1: clasificar dependencias runtime vs dev con auditoria de solo lectura.
-      # No hacer npm audit fix, ni bloquear el CI sin revisar los advisories.
+      # F344: incluir también herramientas de desarrollo y detener vulnerabilidades moderadas o superiores.
+      # Se habilita tras verificar F342/F343 con npm audit completo = 0; no aplicar fix/overrides automáticos.
+      - name: Audit complete npm dependency graph (including dev)
+        working-directory: frontend/marketplace-ui
+        run: npm audit --audit-level=moderate
+
+      # P1: clasificar dependencias runtime vs dev con auditoría adicional de solo lectura.
+      # No ejecutar cambios de lockfile durante CI.
       - name: Classify npm security advisories (non-mutating)
         run: node scripts/p1-audit-dependencies.mjs
 
