@@ -31,6 +31,9 @@ public class CatalogDbContext : DbContext
     public DbSet<PickList> PickLists => Set<PickList>();
     public DbSet<ItemPickList> ItemsPickList => Set<ItemPickList>();
     public DbSet<PaqueteDespacho> PaquetesDespacho => Set<PaqueteDespacho>();
+    public DbSet<SesionConteo> SesionesConteo => Set<SesionConteo>();
+    public DbSet<LecturaConteo> LecturasConteo => Set<LecturaConteo>();
+    public DbSet<HallazgoConteo> HallazgosConteo => Set<HallazgoConteo>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -298,8 +301,49 @@ public class CatalogDbContext : DbContext
         });
 
         // ── ConteoCiclico ─────────────────────────────────────────────────────
+        modelBuilder.Entity<SesionConteo>(entity =>
+        {
+            entity.ToTable("sesiones_conteo");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Numero).HasMaxLength(20).IsRequired();
+            entity.Property(s => s.Modo).HasConversion<string>().HasMaxLength(20);
+            entity.Property(s => s.Estado).HasConversion<string>().HasMaxLength(20);
+            entity.Property(s => s.Pasillo).HasMaxLength(100);
+            entity.Property(s => s.CreadaPor).HasMaxLength(256).IsRequired();
+            entity.Property(s => s.Observaciones).HasMaxLength(1000);
+            entity.HasIndex(s => s.Numero).IsUnique();
+            // A lo sumo un recorrido abierto por pasillo.
+            entity.HasIndex(s => s.Pasillo).IsUnique()
+                .HasFilter("\"Modo\" = 'Recorrido' AND \"Estado\" = 'Abierta'");
+        });
+
+        modelBuilder.Entity<LecturaConteo>(entity =>
+        {
+            entity.ToTable("lecturas_conteo");
+            entity.HasKey(l => l.Id);
+            entity.Property(l => l.Id).ValueGeneratedNever(); // lo genera el cliente (idempotencia)
+            entity.Property(l => l.CodigoLeido).HasMaxLength(13).IsRequired();
+            entity.Property(l => l.Resultado).HasConversion<string>().HasMaxLength(30);
+            entity.Property(l => l.Usuario).HasMaxLength(256).IsRequired();
+            entity.HasIndex(l => l.SesionConteoId);
+            entity.HasOne<SesionConteo>().WithMany().HasForeignKey(l => l.SesionConteoId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<HallazgoConteo>(entity =>
+        {
+            entity.ToTable("hallazgos_conteo");
+            entity.HasKey(h => h.Id);
+            entity.Property(h => h.Sku).HasMaxLength(50).IsRequired();
+            entity.Property(h => h.NombreProducto).HasMaxLength(300).IsRequired();
+            entity.Property(h => h.Pasillo).HasMaxLength(100).IsRequired();
+            entity.Property(h => h.Usuario).HasMaxLength(256).IsRequired();
+            entity.HasIndex(h => h.SesionConteoId);
+            entity.HasOne<SesionConteo>().WithMany().HasForeignKey(h => h.SesionConteoId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<ConteoCiclico>(entity =>
         {
+            entity.HasIndex(c => c.SesionConteoId);
             entity.ToTable("conteos_ciclicos", table =>
             {
                 table.HasCheckConstraint(

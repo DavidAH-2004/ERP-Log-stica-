@@ -28,6 +28,8 @@ const ReabastecimientoPage = lazy(() => import('./pages/reabastecimiento/Reabast
 const ProveedoresPage = lazy(() => import('./pages/proveedores/ProveedoresPage'));
 const AjustesPage = lazy(() => import('./pages/ajustes/AjustesPage'));
 const ConteosPage = lazy(() => import('./pages/conteos/ConteosPage'));
+const EscanerConteosPage = lazy(() => import('./pages/conteos/EscanerConteosPage'));
+const SesionConteoPage = lazy(() => import('./pages/conteos/SesionConteoPage'));
 const AlertasInventarioPage = lazy(() => import('./pages/alertas/AlertasInventarioPage'));
 const BloqueosInventarioPage = lazy(() => import('./pages/bloqueos/BloqueosInventarioPage'));
 
@@ -125,6 +127,8 @@ function AppRoutes() {
           <Route path="proveedores" element={<RoleRouteGuard allowedRoles={['Admin']}><ProveedoresPage /></RoleRouteGuard>} />
           <Route path="ajustes" element={<RoleRouteGuard allowedRoles={['Admin']}><AjustesPage /></RoleRouteGuard>} />
           <Route path="conteos" element={<RoleRouteGuard allowedRoles={['Admin']}><ConteosPage /></RoleRouteGuard>} />
+        <Route path="conteos/escaner" element={<RoleRouteGuard allowedRoles={['Admin']}><EscanerConteosPage /></RoleRouteGuard>} />
+        <Route path="conteos/escaner/:id" element={<RoleRouteGuard allowedRoles={['Admin']}><SesionConteoPage /></RoleRouteGuard>} />
           <Route path="alertas-inventario" element={<RoleRouteGuard allowedRoles={['Admin']}><AlertasInventarioPage /></RoleRouteGuard>} />
           <Route path="bloqueos-inventario" element={<RoleRouteGuard allowedRoles={['Admin']}><BloqueosInventarioPage /></RoleRouteGuard>} />
           <Route path="fulfillment" element={<RoleRouteGuard allowedRoles={['Admin']}><FulfillmentPage /></RoleRouteGuard>} />

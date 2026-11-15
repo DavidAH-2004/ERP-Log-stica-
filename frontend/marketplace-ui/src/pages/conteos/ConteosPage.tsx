@@ -4,7 +4,9 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { ClipboardList, Plus, RefreshCw } from 'lucide-react';
+import { ClipboardList, Plus, RefreshCw, ScanLine } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import SesionesEscaneoPanel from './SesionesEscaneoPanel';
 import DataTable, { type Column } from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
@@ -13,6 +15,7 @@ import { wmsApi } from '../../api/wms';
 import type { StockTransferenciaWms } from '../../types';
 
 export default function ConteosPage() {
+  const navigate = useNavigate();
   const [conteos, setConteos] = useState<ConteoCiclico[]>([]);
   const [stocks, setStocks] = useState<StockTransferenciaWms[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,6 +126,7 @@ export default function ConteosPage() {
     <div className="page-header">
       <div><h1 className="page-title">Conteos cíclicos</h1><p className="page-subtitle">Verificación física con reconteo obligatorio antes de generar ajustes</p></div>
       <div style={{display:'flex',gap:8}}>
+        <button className="btn btn-primary" onClick={() => navigate('/conteos/escaner')}><ScanLine size={13}/> Contar con escáner</button>
         <button className="btn btn-primary" onClick={() => { setModalPlan(true); setError(''); }}><Plus size={13}/> Planificar conteo</button>
         <button className="btn btn-secondary" onClick={cargar}><RefreshCw size={13}/> Actualizar</button>
       </div>
@@ -136,6 +140,8 @@ export default function ConteosPage() {
       title="Regla de control"
       message="El conteo no modifica stock. Si el primer conteo difiere del sistema, se exige reconteo. Una diferencia confirmada genera un ajuste pendiente de aprobación, que solo cambiará el inventario al aplicarse desde Ajustes de inventario."
     />
+
+    <SesionesEscaneoPanel />
 
     <DataTable<ConteoCiclico> title="Conteos registrados" columns={columns} data={conteos} loading={loading} rowKey={r => r.id} pageSize={10} emptyMessage="No hay conteos cíclicos registrados" />
 

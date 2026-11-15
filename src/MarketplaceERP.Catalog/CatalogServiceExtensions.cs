@@ -33,6 +33,7 @@ public static class CatalogServiceExtensions
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<IAjusteInventarioService, AjusteInventarioService>();
         services.AddScoped<IConteoCiclicoService, ConteoCiclicoService>();
+        services.AddScoped<ISesionConteoService, SesionConteoService>();
         services.AddScoped<IAlertaInventarioService, AlertaInventarioService>();
         services.AddScoped<ICatalogImportService, CatalogImportService>();
         services.AddScoped<IWmsService, WmsService>();

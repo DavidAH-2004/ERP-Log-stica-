@@ -262,10 +262,10 @@ public class AutorizacionU2Tests
         // Sandbox QA: +2 endpoints de comprador y referencias reales de producto.
         // OMS evaluación: +1 controlador y +2 rutas exclusivas de Admin.
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
-        // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // Ninguna autorización queda implícita.
-        Assert.Equal(28, controllers.Length);
-        Assert.Equal(98, actions); // F360 agrega POST api/auth/logout autorizado.
-        Assert.Equal(99, routes); // Productos/GetAlertasStock tiene dos alias.
+        // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
+        Assert.Equal(29, controllers.Length);
+        Assert.Equal(106, actions); // F360 agrega POST api/auth/logout autorizado.
+        Assert.Equal(107, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]
