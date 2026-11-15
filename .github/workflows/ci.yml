@@ -385,6 +385,12 @@ jobs:
           F101_CHROME_CHANNEL: chromium
         run: node tests/f105-live-seller-orders.mjs
 
+      # F381: REAL BFF adapter -> REAL ASP.NET 8 + disposable PostgreSQL.
+      # Passwords are ephemeral CI-only; no Vercel/Render/Neon, no payments.
+      - name: F381 BFF against real local API (fail closed, no external credentials)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f381-real-api-bff-smoke.mjs
+
   local-worktrees-windows:
     name: Local Git comparator (Windows PowerShell 5.1)
     runs-on: windows-latest
