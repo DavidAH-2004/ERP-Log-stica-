@@ -41,6 +41,7 @@ public class AuthController : ControllerBase
 {
     private readonly CoreDbContext _coreDb;
     private readonly JwtSettings _jwtSettings;
+    private readonly bool _enforceSessionVersion;
     private readonly ILogger<AuthController> _logger;
     private readonly PasswordHasher<Usuario> _passwordHasher;
     private static readonly Usuario _dummyUsuario = new() { Email = "dummy@security.internal" };
@@ -50,10 +51,12 @@ public class AuthController : ControllerBase
     public AuthController(
         CoreDbContext coreDb,
         IOptions<JwtSettings> jwtOptions,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        IConfiguration? configuration = null)
     {
         _coreDb = coreDb;
         _jwtSettings = jwtOptions.Value;
+        _enforceSessionVersion = configuration?.GetValue<bool>("Auth:EnableSessionVersionCheck") ?? false;
         _logger = logger;
         _passwordHasher = new PasswordHasher<Usuario>();
     }
@@ -162,6 +165,50 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// F360: atomically invalidate all previous JWTs for the account.
+    /// Disabled until the database migration and explicit cutover gate succeed.
+    /// </summary>
+    [Authorize(Roles = "Admin,Vendedor,Comprador")]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        if (!_enforceSessionVersion)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "Revocación todavía no habilitada." });
+
+        var idText = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var versionText = User.FindFirst("sv")?.Value;
+        if (!Guid.TryParse(idText, out var userId) || userId == Guid.Empty ||
+            !int.TryParse(versionText, out var version) || version < 0)
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+
+        try
+        {
+            var changed = await _coreDb.Usuarios
+                .Where(u => u.Id == userId && u.Activo && u.VersionSesion == version &&
+                    u.VersionSesion < int.MaxValue)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(
+                    u => u.VersionSesion, u => u.VersionSesion + 1), cancellationToken);
+            if (changed != 1)
+                return Unauthorized(new { mensaje = "La sesión ya fue revocada." });
+
+            _logger.LogInformation("Sesiones anteriores revocadas para Usuario={UsuarioId}.", userId);
+            return NoContent();
+        }
+        catch (Exception ex) when (
+            ex is DbUpdateException || ex is InvalidOperationException ||
+            ex is System.Data.Common.DbException || ex is OperationCanceledException)
+        {
+            _logger.LogWarning("No se pudo confirmar la revocación de sesión.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "La revocación no se confirmó." });
+        }
+    }
+
     private string GenerarToken(Usuario usuario, string rolCanonico)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key));
@@ -172,6 +219,8 @@ public class AuthController : ControllerBase
             new(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
             new(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("sv", usuario.VersionSesion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ClaimValueTypes.Integer32),
             new(ClaimTypes.Name, usuario.Email),
             new(ClaimTypes.Role, rolCanonico),
             new(JwtRegisteredClaimNames.Iat,
