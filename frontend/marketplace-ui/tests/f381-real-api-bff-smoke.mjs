@@ -198,6 +198,9 @@ assert.equal(adminLabelsResult.status, 200, 'Admin labels endpoint must respond'
 const adminLabels = await adminLabelsResult.json();
 assert.ok(Array.isArray(adminLabels));
 assert.ok(adminLabels.length <= 500);
+assert.ok(adminLabels.every(item =>
+  typeof item.codigoEAN === 'string' && item.codigoEAN.trim().length > 0),
+'F414 default printable labels must never contain NULL/empty EANs');
 
 const sellerLabelsResult = await call(request('/api/productos/etiquetas', 'GET', {
   cookie: sellerSession.cookies,
@@ -249,6 +252,28 @@ const otherBarcode = (await otherAssignment.json()).codigoEAN;
 assert.match(otherBarcode, /^20[0-9]{11}$/);
 assert.notEqual(otherBarcode, issued[0].codigoEAN,
   'Separate products must get unique sequences');
+
+// F414: no-IDs label export must include ONLY products with an EAN.
+// F105 Seller B product is published but still has a NULL CodigoEAN.
+// Explicit IDs are intentionally different: they may report missing codes.
+const postAssignmentLabels = await call(request('/api/productos/etiquetas', 'GET', {
+  cookie: cookies.header,
+}));
+assert.equal(postAssignmentLabels.status, 200);
+const printableLabels = await postAssignmentLabels.json();
+assert.ok(printableLabels.some(p => p.id === fixtureA && p.codigoEAN === issued[0].codigoEAN));
+assert.ok(printableLabels.some(p => p.id === fixtureB && p.codigoEAN === otherBarcode));
+assert.ok(!printableLabels.some(p => p.id === 'f1050000-0000-4000-8000-000000000021'),
+  'F414 must omit published product with NULL EAN');
+assert.ok(printableLabels.every(p =>
+  typeof p.codigoEAN === 'string' && p.codigoEAN.trim() !== ''),
+  'F414 must never return empty label EANs');
+console.log('F414_NULL_EAN_LABEL_FILTER_PASS '+JSON.stringify({
+  assignedPrintables: 2,
+  nullBarcodePublishedExcluded: true,
+  source: 'CI disposable PostgreSQL only',
+  productionTouched: false
+}));
 const idempotent = await call(barcodePost(fixtureA));
 assert.equal(idempotent.status, 200);
 assert.equal((await idempotent.json()).codigoEAN, issued[0].codigoEAN);
