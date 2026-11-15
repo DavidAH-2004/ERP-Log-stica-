@@ -311,6 +311,29 @@ assert.equal(startScan.status, 201, 'Admin may open a planned scan session');
 const scanSession = await startScan.json();
 assert.match(scanSession.id, /^[0-9a-f-]{36}$/i);
 
+// F404: two simultaneous network retries of an out-of-place product must
+// create exactly ONE audit finding, even across separate HTTP requests.
+const f404OutBody = {lecturaId: randomUUID(), codigo:otherBarcode, cantidad:3};
+const f404Path = scanBase + '/' + scanSession.id + '/lecturas';
+const f404Outside = await Promise.all([
+  call(request(f404Path, 'POST', adminMutatingHeaders, f404OutBody)),
+  call(request(f404Path, 'POST', adminMutatingHeaders, f404OutBody)),
+]);
+for (const response of f404Outside) {
+  assert.equal(response.status, 200, 'Outside-location retry must be an HTTP success');
+  assert.equal((await response.json()).resultado, 'FueraDeLugar');
+}
+const f404Changed = await call(request(f404Path, 'POST', adminMutatingHeaders,
+  {...f404OutBody, cantidad:7}));
+assert.equal(f404Changed.status, 200);
+const f404ChangedBody = await f404Changed.json();
+assert.equal(f404ChangedBody.resultado, 'Rechazado',
+  'The same read UUID with a different quantity must fail closed');
+assert.equal(f404ChangedBody.sku ?? null, null, 'No stored product data may leak from a reused UUID');
+const f404OutsideSummary = await (await call(request(
+  scanBase + '/' + scanSession.id, 'GET', {cookie:cookies.header}))).json();
+assert.equal(f404OutsideSummary.fueraDeLugar.length, 1,
+  'A double-submit must never create duplicate inventory findings');
 const readBody = {lecturaId: randomUUID(), codigo:issued[0].codigoEAN, cantidad:20};
 const scanResponses = await Promise.all([
   call(request(scanBase + '/' + scanSession.id + '/lecturas', 'POST',
@@ -344,6 +367,7 @@ console.log('F399_REAL_PG_SCANNER_PASS ' + JSON.stringify({
   adminCanPlanAndScan: true,
   sellerAndBuyerDenied: true,
   concurrentIdenticalRead: 'same result',
+  concurrentOutsideLocation: 'one finding',
   counted: 1,
   closed: true,
   productionTouched: false,

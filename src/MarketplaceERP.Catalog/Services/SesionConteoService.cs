@@ -166,22 +166,18 @@ internal sealed class SesionConteoService : ISesionConteoService
         if (cantidad < 0)
             throw new ArgumentOutOfRangeException(nameof(cantidad), cantidad, "La cantidad no puede ser negativa.");
 
-        // Reintento de una lectura ya procesada (red móvil): devolver lo mismo, sin recalcular.
+        // Canonicalizar antes de comparar un reintento. Nunca reutilizar un
+        // UUID de lectura para una cantidad, sesión o producto diferentes.
+        codigo = new string((codigo ?? string.Empty).Where(c => !char.IsWhiteSpace(c)).ToArray());
         var guardada = await _db.LecturasConteo.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lecturaId, ct);
         if (guardada is not null)
-        {
-            // El mismo UUID nunca debe recuperar datos de otra sesión.
-            if (guardada.SesionConteoId != sesionId || guardada.CodigoLeido != codigo)
-                return Dto(ResultadoLectura.Rechazado);
-            return await ReconstruirAsync(guardada, ct);
-        }
+            return await ResolverReintentoAsync(guardada, sesionId, codigo, cantidad, stockFisicoId, ct);
 
         var sesion = await _db.SesionesConteo.FirstOrDefaultAsync(s => s.Id == sesionId, ct)
             ?? throw new KeyNotFoundException($"Sesión {sesionId} no encontrada.");
         if (sesion.Estado != EstadoSesionConteo.Abierta)
             return Dto(ResultadoLectura.SesionNoAbierta);
 
-        codigo = new string((codigo ?? string.Empty).Where(c => !char.IsWhiteSpace(c)).ToArray());
         if (!CodigoBarras.EsEan13Valido(codigo))
             return Dto(ResultadoLectura.CodigoInvalido);
 
@@ -248,6 +244,34 @@ internal sealed class SesionConteoService : ISesionConteoService
     private async Task<ResultadoLecturaDto> RegistrarFueraDeLugarAsync(SesionConteo sesion, Guid lecturaId, string codigo,
         Producto producto, int cantidad, string usuario, CancellationToken ct)
     {
+        // La misma lectura puede llegar a dos API al mismo tiempo. Bloquear
+        // la sesión, volver a comprobar el UUID DESPUÉS del bloqueo y grabar
+        // lectura + hallazgo en la misma transacción. No crear dos hallazgos.
+        await using var transaction = _db.Database.IsRelational()
+            ? await _db.Database.BeginTransactionAsync(ct)
+            : null;
+        if (transaction is not null)
+        {
+            await _db.Database.SqlQuery<int>(
+                $"SELECT 1 AS \"Value\" FROM catalog.sesiones_conteo WHERE \"Id\" = {sesion.Id} FOR UPDATE")
+                .ToListAsync(ct);
+        }
+
+        var repetida = await _db.LecturasConteo.AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == lecturaId, ct);
+        if (repetida is not null)
+        {
+            // La operación ya fue confirmada por la primera solicitud.
+            return await ResolverReintentoAsync(repetida, sesion.Id, codigo, cantidad, null, ct);
+        }
+        if (transaction is not null)
+        {
+            var estado = await _db.SesionesConteo.AsNoTracking()
+                .Where(s => s.Id == sesion.Id).Select(s => s.Estado).SingleAsync(ct);
+            if (estado != EstadoSesionConteo.Abierta)
+                return Dto(ResultadoLectura.SesionNoAbierta);
+        }
+
         _db.HallazgosConteo.Add(new HallazgoConteo
         {
             Id = Guid.NewGuid(),
@@ -262,7 +286,21 @@ internal sealed class SesionConteoService : ISesionConteoService
         });
         GuardarLectura(sesion.Id, lecturaId, codigo, producto.Id, null, null, cantidad, ResultadoLectura.FueraDeLugar, usuario);
         await _db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
         return Dto(ResultadoLectura.FueraDeLugar, producto);
+    }
+
+    private async Task<ResultadoLecturaDto> ResolverReintentoAsync(
+        LecturaConteo guardada, Guid sesionId, string codigo, int cantidad, Guid? stockId, CancellationToken ct)
+    {
+        // Los códigos de lectura son claves de idempotencia, no referencias
+        // libres para recuperar información de otra operación.
+        if (guardada.SesionConteoId != sesionId ||
+            guardada.CodigoLeido != codigo ||
+            (guardada.Cantidad.HasValue && guardada.Cantidad.Value != cantidad) ||
+            (stockId.HasValue && guardada.StockFisicoId != stockId.Value))
+            return Dto(ResultadoLectura.Rechazado);
+        return await ReconstruirAsync(guardada, ct);
     }
 
     /// <summary>
@@ -367,7 +405,7 @@ internal sealed class SesionConteoService : ISesionConteoService
             await DeshacerAsync(transaccion, ct);
             var guardada = await _db.LecturasConteo.AsNoTracking().FirstOrDefaultAsync(l => l.Id == lecturaId, ct);
             if (guardada is null) throw;
-            return await ReconstruirAsync(guardada, ct);
+            return await ResolverReintentoAsync(guardada, sesion.Id, codigo, cantidad, stockId, ct);
         }
         catch
         {
