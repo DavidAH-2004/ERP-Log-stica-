@@ -1,11 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text.Json;
 using MarketplaceERP.API.Controllers;
 using MarketplaceERP.Core.Data;
 using MarketplaceERP.Core.Entities;
 using MarketplaceERP.Shared.Settings;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -112,4 +114,65 @@ public sealed class AuthCookieSessionControllerTests
             Assert.IsType<UnauthorizedObjectResult>(await controller.Session(CancellationToken.None));
         }
     }
+
+    [Theory]
+    [InlineData("Admin")]
+    [InlineData("Vendedor")]
+    [InlineData("Comprador")]
+    public async Task RealLogin_IssuesNumericIatAndExp_ForBoundedCookieSession(string role)
+    {
+        await using var db = new CoreDbContext(new DbContextOptionsBuilder<CoreDbContext>()
+            .UseInMemoryDatabase("f359-real-login-" + Guid.NewGuid().ToString("N")).Options);
+        const string password = "f359-only-temporary-fixture-password";
+        var user = new Usuario
+        {
+            Id = Guid.NewGuid(),
+            Email = "f359-" + role.ToLowerInvariant() + "@erp.invalid",
+            Nombre = "F359 Session Fixture",
+            Rol = role,
+            Activo = true
+        };
+        user.PasswordHash = new PasswordHasher<Usuario>().HashPassword(user, password);
+        db.Usuarios.Add(user);
+        await db.SaveChangesAsync();
+
+        var controller = new AuthController(
+            db,
+            Options.Create(new JwtSettings
+            {
+                Key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)),
+                Issuer = "f359-tests.invalid",
+                Audience = "f359-client.invalid",
+                ExpirationMinutes = 30
+            }),
+            NullLogger<AuthController>.Instance);
+
+        var response = Assert.IsType<OkObjectResult>(
+            await controller.Login(new LoginRequest(user.Email, password), CancellationToken.None));
+        var credentials = Assert.IsType<LoginResponse>(response.Value);
+        Assert.Equal(role, credentials.Role);
+        Assert.Equal(role, credentials.Rol);
+
+        var tokenParts = credentials.Token.Split('.');
+        Assert.Equal(3, tokenParts.Length);
+        var payload = tokenParts[1].Replace('-', '+').Replace('_', '/');
+        var decoded = Convert.FromBase64String(
+            payload.PadRight(((payload.Length + 3) / 4) * 4, '='));
+        using var parsed = JsonDocument.Parse(decoded);
+        var issuedAt = parsed.RootElement.GetProperty(JwtRegisteredClaimNames.Iat);
+        var expires = parsed.RootElement.GetProperty(JwtRegisteredClaimNames.Exp);
+        Assert.Equal(JsonValueKind.Number, issuedAt.ValueKind);
+        Assert.Equal(JsonValueKind.Number, expires.ValueKind);
+
+        var iatUnix = issuedAt.GetInt64();
+        var expUnix = expires.GetInt64();
+        Assert.InRange(expUnix - iatUnix, 60 * 29, 60 * 31);
+        Assert.InRange(DateTimeOffset.UtcNow.ToUnixTimeSeconds() - iatUnix, -5, 10);
+        // The cookie BFF must bound its expiry to iat + 900 seconds, not
+        // refresh to an additional 900 seconds on every browser reload.
+        var cookieExpires = Math.Min(expUnix, iatUnix + 900);
+        Assert.True(cookieExpires < expUnix);
+        Assert.True(cookieExpires > DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    }
+
 }
