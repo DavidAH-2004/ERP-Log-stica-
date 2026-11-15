@@ -160,7 +160,7 @@ public sealed class DistributedLoginThrottleTests
                     Assert.DoesNotContain("@", row.AccountKey);
                     Assert.DoesNotContain("f369", row.AccountKey, StringComparison.OrdinalIgnoreCase);
                 });
-                Assert.Equal(new[] { 7, 6, 20 },
+                Assert.Equal(new[] { 20, 7, 6 },
                     rows.Select(x => x.Requests).OrderBy(x => x).Reverse().ToArray());
                 // Shift known account outside the window to prove reset.
                 var knownHash = rows.Single(x => x.Requests == 7).AccountKey;
