@@ -54,6 +54,7 @@ public sealed class JwtSessionGenerationTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.AddRouting(); // Required by AuthorizationPolicyCache in real middleware.
         services.AddDbContext<CoreDbContext>(o => o.UseNpgsql(connection,
             n => n.MigrationsHistoryTable("__EFMigrationsHistory", "core")));
         services.AddMarketplaceSecurity(new JwtSettings
