@@ -32,6 +32,9 @@ if (await MaintenanceCommand.RunMaintenanceIfRequestedAsync(command, async () =>
 var builder = WebApplication.CreateBuilder(args);
 
 // Ambos modos usan la misma selección de destino. Ninguno abre la conexión aquí.
+// F472: enforce barcode rollout prerequisites before opening HTTP or DB.
+BarcodeRotationDeploymentGuard.Validate(
+    builder.Configuration, Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME"));
 var databaseConnection = DatabaseConnectionConfiguration.Resolve(builder.Configuration);
 StagingDatabaseTargetGuard.Validate(builder.Configuration,
     Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME"),
