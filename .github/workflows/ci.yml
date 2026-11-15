@@ -399,6 +399,38 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: node tests/f381-real-api-bff-smoke.mjs
 
+      # F390: two strict AUTH .NET processes share ONLY disposable localhost DB.
+      # No Render, Neon, Vercel, real payments or persistent credentials.
+      - name: F390 start two strict-auth API instances (localhost only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5001 5002; do
+            nohup env PORT="$port" Auth__EnableSessionVersionCheck=true \
+              Auth__EnableDistributedAccountLoginThrottle=true \
+              dotnet run --project src/MarketplaceERP.API/MarketplaceERP.API.csproj \
+                --configuration Release --no-build --no-launch-profile \
+                > "/tmp/f390-api-$port.log" 2>&1 &
+            ready=0
+            for i in $(seq 1 120); do
+              if curl --silent --fail "http://127.0.0.1:$port/health/ready" > /dev/null; then
+                ready=1; break
+              fi
+              sleep 0.3
+            done
+            if [ "$ready" != "1" ]; then
+              echo "::error::F390 strict local API $port never became ready"
+              exit 1
+            fi
+          done
+
+      - name: F390 cross-instance revocation and account throttle (real API and DB)
+        working-directory: frontend/marketplace-ui
+        env:
+          Auth__EnableSessionVersionCheck: "true"
+          Auth__EnableDistributedAccountLoginThrottle: "true"
+        run: node tests/f390-two-instance-auth.mjs
+
   local-worktrees-windows:
     name: Local Git comparator (Windows PowerShell 5.1)
     runs-on: windows-latest
