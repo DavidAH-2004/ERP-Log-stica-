@@ -82,4 +82,68 @@ public class DeploymentHttpSecurityTests
         DeploymentHttpSecurity.AddRenderHsts(headers);
         Assert.Equal("max-age=3600", headers["Strict-Transport-Security"].ToString());
     }
+    [Theory]
+    [InlineData("marketplaceerp-api")]
+    [InlineData("marketplaceerp-api-staging")]
+    public void F388_RenderConfiaSoloEnIpSobrescritaPorCloudflare(string renderService)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.11");
+        context.Request.Headers["X-Forwarded-For"] = "10.0.0.1, 203.0.113.99";
+        context.Request.Headers["CF-Connecting-IP"] = "203.0.113.44";
+        Assert.Equal("203.0.113.44",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, renderService));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("other-service")]
+    [InlineData("marketplaceerp-api-dev-unknown")]
+    public void F388_SinRenderConfiableIgnoraCFYForwardedFor(string? renderService)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.12");
+        context.Request.Headers["X-Forwarded-For"] = "203.0.113.11";
+        context.Request.Headers["CF-Connecting-IP"] = "203.0.113.12";
+        Assert.Equal("198.51.100.12",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, renderService));
+    }
+
+    [Theory]
+    [InlineData("198.51.100.14, 203.0.113.20")]
+    [InlineData("invalid-client")]
+    [InlineData("127.0.0.1")]
+    [InlineData("0.0.0.0")]
+    [InlineData("::")]
+    public void F388_CabeceraMalformadaOInseguraNoControlaLimitador(string value)
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.13");
+        context.Request.Headers["CF-Connecting-IP"] = value;
+        Assert.Equal("198.51.100.13",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api-staging"));
+    }
+
+    [Fact]
+    public void F388_CabeceraRepetidaEsRechazada()
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.15");
+        context.Request.Headers["CF-Connecting-IP"] =
+            new Microsoft.Extensions.Primitives.StringValues(new[] { "203.0.113.1", "203.0.113.2" });
+        Assert.Equal("198.51.100.15",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api"));
+    }
+
+    [Fact]
+    public void F388_NoCabeceraUsaPeerYPreservaCompatibilidadLocal()
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("::ffff:192.0.2.35");
+        context.Request.Headers["X-Forwarded-For"] = "203.0.113.100";
+        Assert.Equal("192.0.2.35",
+            DeploymentHttpSecurity.LoginRateLimitPartition(context, "marketplaceerp-api"));
+    }
+
 }
