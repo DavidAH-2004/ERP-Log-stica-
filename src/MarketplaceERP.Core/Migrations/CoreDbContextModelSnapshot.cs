@@ -236,6 +236,11 @@ namespace MarketplaceERP.Core.Migrations
                     b.Property<Guid?>("VendedorId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("VersionSesion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Email")
