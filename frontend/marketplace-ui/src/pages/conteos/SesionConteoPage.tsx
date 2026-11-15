@@ -184,11 +184,13 @@ export default function SesionConteoPage() {
       volverAEscanear();
       cargar();
     } catch (e) {
-      if (e instanceof ApiError && e.status === 0) {
-        // F432: the server may already have committed the first request.
-        // Keep its full immutable payload for an idempotent retry.
+      if (e instanceof ApiError && (e.status === 0 || e.status === 408 || e.status >= 500)) {
+        // F432/F433: a network error, timeout, or gateway/server error does NOT
+        // prove the first request was rolled back. Retry the same full payload.
         setReintentoPendiente(true);
-        mostrar({ resultado: 'SinConexion', mensaje: 'Sin conexión: reintenta guardar la misma lectura. No vuelvas a escanear.' });
+        mostrar({ resultado: 'SinConexion', mensaje: e.status === 0
+          ? 'Sin conexión: reintenta guardar la misma lectura. No vuelvas a escanear.'
+          : 'El servidor no confirmó la lectura: reintenta guardar la misma lectura. No vuelvas a escanear.' });
       } else {
         lecturaEnviadaRef.current = null;
         setReintentoPendiente(false);

@@ -39,7 +39,7 @@ const fulfill=(route,body,status=200)=>route.fulfill({
   status,contentType:'application/json',body:JSON.stringify(body)
 });
 async function mockApi(page){
-  const s={posts:[],failNext:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null};
+  const s={posts:[],failNext:false,failGateway:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null};
   await page.route(url=>url.pathname.startsWith('/api/'),async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
     if(url.hostname!=='127.0.0.1'){s.external++;return route.abort();}
@@ -59,6 +59,7 @@ async function mockApi(page){
       const body=req.postDataJSON();
       s.posts.push(body);
       if(s.failNext){s.failNext=false;return route.abort('failed');}
+      if(s.failGateway){s.failGateway=false;return fulfill(route,{mensaje:'Gateway response unknown'},503);}
       s.successful++;
       return fulfill(route,{resultado:'Coincide',mensaje:'Lectura QA registrada',
         sku:'F411-TEST',nombre:'Producto de prueba',ubicacionCodigo:'A1',opciones:null});
@@ -217,6 +218,25 @@ try{
   assert.equal(await newerSave.isEnabled(),true,'Stale 503 must not disable newer scan');
   assert.equal(state.posts.length,3,'No count writes from stale lookups');
   await page.getByRole('button',{name:'Descartar'}).click();
+
+  // F433: HTTP 503 can be returned after an upstream write. Treat it as
+  // uncertain, freeze the payload, and retry using the exact same UUID/amount.
+  state.failGateway=true;
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  await qty.waitFor({state:'visible'});
+  await qty.fill('7');
+  await qty.press('Enter');
+  await page.getByText('El servidor no confirmó la lectura: reintenta guardar la misma lectura. No vuelvas a escanear.').waitFor({timeout:8000});
+  assert.equal(await qty.isDisabled(),true,'F433: HTTP 503 must freeze the quantity');
+  assert.equal(await page.getByRole('button',{name:'Descartar'}).isDisabled(),true,
+    'F433: HTTP 503 must not let the operator generate a duplicate count');
+  await page.getByRole('button',{name:'Reintentar guardar (Enter)'}).click();
+  await scanner.waitFor({state:'visible'});
+  assert.equal(state.posts.length,5,'HTTP 503 must result in exactly one retry');
+  assert.deepEqual(state.posts[4],state.posts[3],
+    'F433 retry must preserve UUID, EAN, amount and location');
+  assert.equal(state.successful,3,'F433 must not count a gateway error twice');
   await ctx.close();
 
   // F422: exercitar la ruta REAL de @zxing/browser a través de
@@ -300,6 +320,7 @@ try{
     syntheticUsbKeyboard:'13 digits + Enter',invalidLocalRejection:true,
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,f432FrozenRetryPayload:true,
+    f433Server503RetrySamePayload:true,
     buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
     f429StaleLookupCannotClearNewScan:true,
