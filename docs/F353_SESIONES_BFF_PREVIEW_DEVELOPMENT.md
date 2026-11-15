@@ -36,6 +36,20 @@ El backend y el proxy F353 se complementan ahora con un cliente React experiment
 - `tests/MarketplaceERP.Finance.Tests/AuthCookieSessionControllerTests.cs`: pruebas de la acción de sesión con `CoreDbContext` InMemory (sin datos externos) para usuario activo y rol válido, frente a usuario inactivo, JWT expirado, identidad ausente, cambio de rol y rol desconocido.
 - Estas comprobaciones **no certifican** la combinación real Vercel Preview → Render Desarrollo → Neon Desarrollo, ni revocación JWT en todas las instancias. El merge sigue sujeto a revisión del CI final, y la activación sigue bloqueada.
 
+## F369 — Rate limiting distribuido por cuenta (opt-in, NO-GO para activar)
+
+**Qué se implementa:** una ventana PostgreSQL atómica de **5 intentos por 60 segundos por identificador de correo**, compartida por todas las instancias Render que utilicen la misma base. Para evitar filtrar si una cuenta existe, se aplica **antes de buscar usuarios** y se cuenta igual con emails existentes y desconocidos. La tabla `core.login_throttle` almacena **solo** `AccountKey` (HMAC-SHA256 del email normalizado, con separación de dominio y clave privada), `WindowStartUtc` y `Requests`. No almacena IP, email en texto plano, token, cookie ni contraseña. La actualización `INSERT ... ON CONFLICT DO UPDATE ... RETURNING` es atómica incluso entre procesos y evita que la concurrencia supere el límite en una ventana.
+
+**Configuración:** `Auth:EnableDistributedAccountLoginThrottle=true` activa el cambio únicamente después de desplegar y certificar la migración EF `20261115042500_AgregarThrottleLoginCuenta`. **Flag desactivado por defecto** en todo entorno. Si la base o tabla no está disponible en modo estricto, el login **falla cerrado 503**, nunca cae a protección permisiva. La política IP anterior `LoginLimiter` sigue existiendo pero es **in-memory/per-instancia y puede agrupar clientes tras el proxy**: este cambio no certifica todavía un WAF ni rate limiting IP distribuido/identidad de edge confiable.
+
+**Pruebas F369 (PostgreSQL desechable CI):** 5 fallos/401 y sexto 429 para una cuenta existente y otra inexistente; 20 intentos paralelos de un tercero, exactamente 5 rechazados normalmente (401) y 15 bloqueados (429); la tabla no contiene correos o identificadores sin HMAC; ventana expirada se reinicia y un login correcto vuelve a 200; flag OFF conserva el login previo.
+
+**Pendientes operativos antes de habilitar:** 
+- Backup y ensayo sobre Neon Desarrollo, aplicar nuevo historial Core (tercera→cuarta migración), revisar 39→40 tablas, y verificar recuperación/despliegue Render DEV. El código no debe desplegarse sin DDL aplicado.
+- Probar el comportamiento con un servicio real mediante un procedimiento autorizado que no exponga credenciales a herramientas. Una prueba CI no equivale a un E2E del edge.
+- Establecer una tarea de purga/retención de identificadores HMAC antiguos para controlar crecimiento y un límite de solicitudes en edge por IP fiable (o proveedor WAF), evitar bloqueo masivo intencionado de cuentas y alertar sobre 429/503 agregados.
+- No activar en Production, ni cerrar #49 por este avance: faltan pagos reales o decisión formal de diferirlos y la validación de sesiones HttpOnly.
+
 ## F360 — Revocación persistente de sesión (código en Desarrollo, NO desplegado)
 
 - `core.usuarios.VersionSesion` (nuevo entero no negativo, valor inicial 0) y migración EF `20261115032000_AgregarVersionSesionJWT`. No ejecutar esta migración en producción ni en Neon Desarrollo sin preflight y backup/rehearsal.
