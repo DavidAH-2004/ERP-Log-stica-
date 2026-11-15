@@ -254,6 +254,101 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal(actual,
                     (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
             }
+
+            // F470: a real two-actor, two-stage rotation on disposable PostgreSQL.
+            // SQL functions must preserve A -> B -> C on the SAME ProductId.
+            // No EAN changes are applied to Neon or Production.
+            var second = CodigoBarras.GenerarInterno(75);
+            var third = CodigoBarras.GenerarInterno(76);
+            var requestOne = Guid.NewGuid();
+            var requestTwo = Guid.NewGuid();
+            var requester = Guid.NewGuid();
+            var approver = Guid.NewGuid();
+            const string justification = "Rotación de inventario verificada en CI";
+
+            await using (var db = NewContext())
+            {
+                var svc = new RotacionEanService(db);
+                Assert.Equal("Solicitada", await svc.SolicitarAsync(
+                    requestOne, p1.Id, second, justification, requester));
+                Assert.Equal("Solicitada", await svc.SolicitarAsync(
+                    requestOne, p1.Id, second, justification, requester));
+                Assert.Equal(actual,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+
+                // The requesting administrator cannot approve their own EAN.
+                var selfApproval = await Assert.ThrowsAsync<PostgresException>(
+                    () => svc.AprobarAsync(requestOne, requester));
+                Assert.Equal("23514", selfApproval.SqlState);
+                Assert.Equal(actual,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+
+                Assert.Equal("Ejecutada", await svc.AprobarAsync(requestOne, approver));
+                Assert.Equal("Ejecutada", await svc.AprobarAsync(requestOne, approver));
+                Assert.Equal(second,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+
+                // Reusing the idempotency key for different target must fail.
+                var reused = await Assert.ThrowsAsync<PostgresException>(
+                    () => svc.SolicitarAsync(
+                        requestOne, p1.Id, third, justification, requester));
+                Assert.Equal("23505", reused.SqlState);
+
+                Assert.Equal("Solicitada", await svc.SolicitarAsync(
+                    requestTwo, p1.Id, third, justification, requester));
+                Assert.Equal("Ejecutada", await svc.AprobarAsync(requestTwo, approver));
+                Assert.Equal(third,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+
+                foreach (var code in new[] { actual, second, third, historicalAlias })
+                {
+                    var found = await ConsultaCodigoEan.BuscarAsync(
+                        db, code, p1.VendedorId, permitirHistoricos: true);
+                    Assert.Equal(p1.Id, Assert.Single(found).Id);
+                    Assert.Empty(await ConsultaCodigoEan.BuscarAsync(
+                        db, code, p2.VendedorId, permitirHistoricos: true));
+                }
+                Assert.False(Assert.Single(await ConsultaCodigoEan.BuscarAsync(
+                    db, third, null, permitirHistoricos: true)).EsAlias);
+                Assert.Equal(2, await db.StockFisico
+                    .Where(s => s.ProductoId == p1.Id).Select(s => s.CantidadTotal)
+                    .SingleAsync());
+                Assert.Equal(3, await db.Productos.CountAsync());
+
+                // No Admin PUT/CSV or direct EF change can erase the last code.
+                var tracked = await db.Productos.SingleAsync(p => p.Id == p1.Id);
+                tracked.CodigoEAN = CodigoBarras.GenerarInterno(77);
+                var blocked = await Assert.ThrowsAsync<DbUpdateException>(
+                    () => db.SaveChangesAsync());
+                Assert.Equal("23514",
+                    Assert.IsType<PostgresException>(blocked.InnerException).SqlState);
+            }
+
+            // Append-only audit has exactly 3 immutable steps per request.
+            await using (var cn = new NpgsqlConnection(scratch.ConnectionString))
+            {
+                await cn.OpenAsync();
+                await using var audit = new NpgsqlCommand("""
+                    SELECT "Version", "Estado" FROM catalog.rotaciones_ean
+                    WHERE "SolicitudId" = @request ORDER BY "Version"
+                    """, cn);
+                audit.Parameters.AddWithValue("request", requestOne);
+                await using var reader = await audit.ExecuteReaderAsync();
+                var events = new List<string>();
+                while (await reader.ReadAsync())
+                    events.Add(reader.GetInt32(0) + ":" + reader.GetString(1));
+                Assert.Equal(new[] { "1:Solicitada", "2:Aprobada", "3:Ejecutada" }, events);
+            }
+
+            // A previously printed label never becomes another product's code.
+            await using (var db = NewContext())
+            {
+                db.Productos.Add(Nuevo("F470-REUSE", actual));
+                var conflict = await Assert.ThrowsAsync<DbUpdateException>(
+                    () => db.SaveChangesAsync());
+                Assert.Equal("23505",
+                    Assert.IsType<PostgresException>(conflict.InnerException).SqlState);
+            }
         }
         finally
         {
