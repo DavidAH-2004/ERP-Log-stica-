@@ -4,6 +4,7 @@
  */
 
 using System.Security.Claims;
+using System.Text.Json;
 using MarketplaceERP.API.Contracts;
 using MarketplaceERP.Catalog.Data;
 using MarketplaceERP.Catalog.Entities;
@@ -608,12 +609,18 @@ public class ProductosController : ControllerBase
         // general product edit. A historical label remains bound to its
         // original product until the separately audited alias design (#71).
         // Omission or an identical existing EAN are harmless no-ops.
-        if (request.CodigoEAN is not null &&
-            !string.Equals(request.CodigoEAN, producto.CodigoEAN ?? string.Empty,
-                StringComparison.Ordinal))
-            return Conflict(new { mensaje =
-                "No se puede cambiar ni borrar el EAN desde la edición general. " +
-                "La rotación requiere un proceso Admin auditado independiente." });
+        // JsonElement differentiates omitted (Undefined) from explicit JSON
+        // null. Otherwise a deletion attempt could be silently accepted as 200.
+        if (request.CodigoEAN.ValueKind != JsonValueKind.Undefined)
+        {
+            var valor = request.CodigoEAN.ValueKind == JsonValueKind.String
+                ? request.CodigoEAN.GetString() : null;
+            if (request.CodigoEAN.ValueKind is not (JsonValueKind.String or JsonValueKind.Null) ||
+                !string.Equals(valor, producto.CodigoEAN, StringComparison.Ordinal))
+                return Conflict(new { mensaje =
+                    "No se puede cambiar ni borrar el EAN desde la edición general. " +
+                    "La rotación requiere un proceso Admin auditado independiente." });
+        }
 
         producto.Sku = request.Sku;
         producto.Nombre = request.Nombre;
@@ -746,6 +753,6 @@ public record ActualizarProductoRequest(
     string UnidadMedida,
     string EstadoProducto,
     bool EstaPublicado,
-    // F427: presence of this optional field lets us reject a requested
-    // change instead of quietly ignoring a client-supplied CodigoEAN.
-    string? CodigoEAN = null);
+    // F427: omitted (Undefined), explicit null and supplied strings are
+    // distinct at the HTTP boundary; an existing EAN cannot be erased.
+    JsonElement CodigoEAN = default);

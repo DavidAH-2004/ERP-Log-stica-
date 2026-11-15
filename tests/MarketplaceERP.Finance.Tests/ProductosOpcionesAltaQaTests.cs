@@ -236,8 +236,9 @@ public sealed class ProductosOpcionesAltaQaTests
     [InlineData("5901234123457")]
     [InlineData("")]
     [InlineData("2000000000015")]
+    [InlineData(null)]
     public async Task F427_Update_RechazaRotacionYBorradoEanHistorico_Como409SinEscribir(
-        string eanSolicitado)
+        string? eanSolicitado)
     {
         var (catalog, core, vendedor, _, _) = CrearContexts();
         await using var cat = catalog;
@@ -258,7 +259,7 @@ public sealed class ProductosOpcionesAltaQaTests
         {
             var controller = Controller(catalog, role,
                 role == "Vendedor" ? vendedor.ToString() : null);
-            var cambio = F427Peticion(eanSolicitado);
+            var cambio = F427Peticion(eanSolicitado, incluirEan: true);
             Assert.IsType<ConflictObjectResult>(
                 await controller.Update(producto.Id, cambio));
             catalog.ChangeTracker.Clear();
@@ -271,10 +272,10 @@ public sealed class ProductosOpcionesAltaQaTests
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("4006381333931")]
+    [InlineData(null, false)]
+    [InlineData("4006381333931", true)]
     public async Task F427_Update_AdmiteEanOmitidoOIdentico_SinRotarlo(
-        string? eanSolicitado)
+        string? eanSolicitado, bool incluirEan)
     {
         var (catalog, core, vendedor, _, _) = CrearContexts();
         await using var cat = catalog;
@@ -292,7 +293,7 @@ public sealed class ProductosOpcionesAltaQaTests
         catalog.ChangeTracker.Clear();
         var api = Controller(catalog, "Admin", null);
         Assert.IsType<OkObjectResult>(
-            await api.Update(producto.Id, F427Peticion(eanSolicitado)));
+            await api.Update(producto.Id, F427Peticion(eanSolicitado, incluirEan)));
         catalog.ChangeTracker.Clear();
         var guardado = await catalog.Productos.AsNoTracking()
             .SingleAsync(p => p.Id == producto.Id);
@@ -301,12 +302,34 @@ public sealed class ProductosOpcionesAltaQaTests
         Assert.Equal(99m, guardado.PrecioB2C);
     }
 
-    private static ActualizarProductoRequest F427Peticion(string? ean) =>
-        new(
+    [Fact]
+    public void F427_HttpJson_DistingueEanOmitidoDeNuloExplicito()
+    {
+        var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var omitido = F427Peticion(null, incluirEan: false);
+        var explicito = F427Peticion(null, incluirEan: true);
+        var serializadoOmitido = JsonSerializer.Serialize(omitido, opts);
+        var serializadoExplicito = JsonSerializer.Serialize(explicito, opts);
+        var rehidratado = JsonSerializer.Deserialize<ActualizarProductoRequest>(
+            serializadoExplicito, opts)!;
+        Assert.Equal(JsonValueKind.Undefined, omitido.CodigoEAN.ValueKind);
+        Assert.Equal(JsonValueKind.Null, explicito.CodigoEAN.ValueKind);
+        Assert.Equal(JsonValueKind.Null, rehidratado.CodigoEAN.ValueKind);
+        Assert.NotEqual(serializadoOmitido, serializadoExplicito);
+    }
+
+    private static ActualizarProductoRequest F427Peticion(
+        string? ean, bool incluirEan)
+    {
+        var request = new ActualizarProductoRequest(
             "F427-ORIGINAL", "Producto editado", "Descripción QA",
             "Tecnología", "General", 99m, 80m, 3,
             "Proveedor QA", "El Salvador", 1m, "10x10x10",
-            "Unidad", "Activo", true, ean);
+            "Unidad", "Activo", true);
+        return incluirEan
+            ? request with { CodigoEAN = JsonSerializer.SerializeToElement(ean) }
+            : request;
+    }
 
     private static ProductosController Controller(CatalogDbContext catalog,
         string role, string? claimId, CoreDbContext? core = null)
