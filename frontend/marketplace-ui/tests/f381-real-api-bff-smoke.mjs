@@ -281,6 +281,68 @@ console.log('F402_REAL_DB_BARCODE_ASSIGNMENT_PASS ' + JSON.stringify({
   productionTouched: false,
 }));
 
+// F399: full barcode-scanner cycle count against disposable PostgreSQL.
+const scanBase = '/api/inventario/conteos-ciclicos/sesiones';
+const scanListAdmin = await call(request(scanBase, 'GET', {cookie: cookies.header}));
+assert.equal(scanListAdmin.status, 200, 'Admin may list sessions');
+assert.ok(Array.isArray(await scanListAdmin.json()));
+assert.equal((await call(request(scanBase, 'GET', {
+  cookie: sellerSession.cookies
+}))).status, 403, 'Seller must not see shared warehouse sessions');
+assert.equal((await call(request(scanBase, 'GET', {
+  cookie: buyerSession.cookies
+}))).status, 403, 'Buyer must not see warehouse sessions');
+assert.equal((await call(request(scanBase, 'GET'))).status, 401);
+
+const f399StockId = fixtureBefore.stocks?.[0]?.id;
+assert.match(f399StockId, /^[0-9a-f-]{36}$/i, 'F105 stock exists in temporary PostgreSQL');
+const planScan = await call(request('/api/inventario/conteos-ciclicos', 'POST',
+  adminMutatingHeaders, {stockFisicoId: f399StockId, observaciones:'F399 CI-only'}));
+assert.equal(planScan.status, 200, 'Admin may plan a cycle count');
+const startScan = await call(request(scanBase + '/planificada', 'POST',
+  adminMutatingHeaders, {pasillo:null}));
+assert.equal(startScan.status, 201, 'Admin may open a planned scan session');
+const scanSession = await startScan.json();
+assert.match(scanSession.id, /^[0-9a-f-]{36}$/i);
+
+const readBody = {lecturaId: randomUUID(), codigo:issued[0].codigoEAN, cantidad:20};
+const scanResponses = await Promise.all([
+  call(request(scanBase + '/' + scanSession.id + '/lecturas', 'POST',
+    adminMutatingHeaders, readBody)),
+  call(request(scanBase + '/' + scanSession.id + '/lecturas', 'POST',
+    adminMutatingHeaders, readBody))
+]);
+for (const response of scanResponses) {
+  assert.equal(response.status, 200, 'Concurrent repeated read must not fail');
+  assert.equal((await response.json()).resultado, 'Coincide',
+    'Both identical read IDs must reconstruct the same result');
+}
+const scanSummaryResp = await call(request(scanBase + '/' + scanSession.id, 'GET',
+  {cookie: cookies.header}));
+assert.equal(scanSummaryResp.status, 200);
+const scanSummary = await scanSummaryResp.json();
+assert.equal(scanSummary.contados.length, 1, 'Exactly one product counted');
+assert.equal(scanSummary.sesion.estado, 'Abierta');
+assert.equal(Object.hasOwn(scanSummary, 'cantidadSistema'), false);
+const closeScan = await call(request(scanBase + '/' + scanSession.id + '/cerrar',
+  'POST', adminMutatingHeaders, {decisiones:[]}));
+assert.equal(closeScan.status, 200, 'Planned count with no missing items may close');
+const closeBody = await closeScan.json();
+assert.equal(closeBody.sesion.estado, 'Cerrada');
+assert.equal((await call(request(scanBase + '/' + scanSession.id + '/lecturas',
+  'POST', adminMutatingHeaders, {...readBody,lecturaId:randomUUID()}))).status, 200,
+'Closed session returns a business result, not 500');
+
+console.log('F399_REAL_PG_SCANNER_PASS ' + JSON.stringify({
+  postgresql: 'disposable CI only',
+  adminCanPlanAndScan: true,
+  sellerAndBuyerDenied: true,
+  concurrentIdenticalRead: 'same result',
+  counted: 1,
+  closed: true,
+  productionTouched: false,
+}));
+
 console.log('F401_REAL_BARCODE_ROLES_PASS ' + JSON.stringify({
   roleContract: 'Admin 200, Seller 200, Buyer 403, Anonymous 401',
   maxSelected: 100,
