@@ -218,6 +218,69 @@ assert.equal((await call(request('/api/productos/por-codigo/2000000000014', 'GET
   cookie: cookies.header,
 }))).status,400,'Invalid EAN checksum must be denied');
 
+// F402: safe PostgreSQL sequence against known F105 fixture products.
+// The F105 fixture is created ONLY in disposable GitHub CI PostgreSQL.
+const fixtureA = 'f1050000-0000-4000-8000-000000000011';
+const fixtureB = 'f1050000-0000-4000-8000-000000000012';
+const fixtureGetBefore = await call(request('/api/productos/' + fixtureA, 'GET', {
+  cookie: cookies.header,
+}));
+assert.equal(fixtureGetBefore.status, 200);
+const fixtureBefore = await fixtureGetBefore.json();
+assert.equal(fixtureBefore.codigoEAN, null, 'F402 must begin with NULL barcode');
+
+const barcodePost = id => request('/api/productos/' + id + '/codigo-barras/asignar',
+  'POST', { cookie: cookies.header, origin: browserOrigin,
+    'x-erp-csrf': payload.csrfToken });
+const issuedResponses = await Promise.all([
+  call(barcodePost(fixtureA)),
+  call(barcodePost(fixtureA)),
+]);
+for (const response of issuedResponses) {
+  assert.equal(response.status, 200, 'Simultaneous Admin assignments must not fail');
+}
+const issued = await Promise.all(issuedResponses.map(r => r.json()));
+assert.match(issued[0].codigoEAN, /^20[0-9]{11}$/);
+assert.equal(issued[0].codigoEAN, issued[1].codigoEAN,
+  'Concurrent requests on same product must return one persisted identifier');
+const otherAssignment = await call(barcodePost(fixtureB));
+assert.equal(otherAssignment.status, 200);
+const otherBarcode = (await otherAssignment.json()).codigoEAN;
+assert.match(otherBarcode, /^20[0-9]{11}$/);
+assert.notEqual(otherBarcode, issued[0].codigoEAN,
+  'Separate products must get unique sequences');
+const idempotent = await call(barcodePost(fixtureA));
+assert.equal(idempotent.status, 200);
+assert.equal((await idempotent.json()).codigoEAN, issued[0].codigoEAN);
+const searched = await call(request('/api/productos/por-codigo/' +
+  issued[0].codigoEAN, 'GET', { cookie: cookies.header }));
+assert.equal(searched.status, 200);
+assert.equal((await searched.json()).id, fixtureA);
+assert.equal((await call(request('/api/productos/por-codigo/' +
+  issued[0].codigoEAN, 'GET', { cookie: sellerSession.cookies }))).status,
+  404, 'Another vendor may not see barcode owner');
+assert.equal((await call(request('/api/productos/' + fixtureA +
+  '/codigo-barras/asignar', 'POST', {
+    cookie: sellerSession.cookies, origin: browserOrigin,
+    'x-erp-csrf': sellerSession.csrf }))).status,
+  403, 'Seller must not assign internal EAN');
+assert.equal((await call(request('/api/productos/' + fixtureA +
+  '/codigo-barras/asignar', 'POST', {
+    cookie: buyerSession.cookies, origin: browserOrigin,
+    'x-erp-csrf': buyerSession.csrf }))).status,
+  403, 'Buyer must not assign internal EAN');
+
+console.log('F402_REAL_DB_BARCODE_ASSIGNMENT_PASS ' + JSON.stringify({
+  postgres: 'disposable localhost only',
+  sourceEANsRewritten: false,
+  sameProductConcurrent: 'one code',
+  differentProducts: 'distinct codes',
+  idempotent: true,
+  sellerBuyerAssignment: 403,
+  crossSellerRead: 404,
+  productionTouched: false,
+}));
+
 console.log('F401_REAL_BARCODE_ROLES_PASS ' + JSON.stringify({
   roleContract: 'Admin 200, Seller 200, Buyer 403, Anonymous 401',
   maxSelected: 100,
