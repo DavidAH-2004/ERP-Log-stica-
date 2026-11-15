@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace MarketplaceERP.Core.Migrations;
 
 /// <summary>
-/// F369: optional distributed per-account login throttle using PostgreSQL.
-/// Additive migration; enforcement is OFF unless explicitly enabled after QA.
+/// F369: privacy-preserving, shared per-identifier login rate limiting.
+/// Adds only a new table and index. OFF until verified and enabled explicitly.
 /// </summary>
 [DbContext(typeof(CoreDbContext))]
 [Migration("20261115042500_AgregarThrottleLoginCuenta")]
@@ -16,25 +16,26 @@ public sealed class AgregarThrottleLoginCuenta : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.AddColumn<int>(
-            name: "IntentosLoginVentana",
+        migrationBuilder.CreateTable(
+            name: "login_throttle",
             schema: "core",
-            table: "usuarios",
-            type: "integer",
-            nullable: false,
-            defaultValue: 0);
+            columns: table => new
+            {
+                AccountKey = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                WindowStartUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                Requests = table.Column<int>(type: "integer", nullable: false)
+            },
+            constraints: table => table.PrimaryKey("PK_login_throttle", x => x.AccountKey));
 
-        migrationBuilder.AddColumn<DateTime>(
-            name: "InicioVentanaLoginUtc",
+        migrationBuilder.CreateIndex(
+            name: "IX_login_throttle_WindowStartUtc",
             schema: "core",
-            table: "usuarios",
-            type: "timestamp with time zone",
-            nullable: true);
+            table: "login_throttle",
+            column: "WindowStartUtc");
     }
 
     protected override void Down(MigrationBuilder migrationBuilder)
     {
-        migrationBuilder.DropColumn(name: "IntentosLoginVentana", schema: "core", table: "usuarios");
-        migrationBuilder.DropColumn(name: "InicioVentanaLoginUtc", schema: "core", table: "usuarios");
+        migrationBuilder.DropTable(name: "login_throttle", schema: "core");
     }
 }
