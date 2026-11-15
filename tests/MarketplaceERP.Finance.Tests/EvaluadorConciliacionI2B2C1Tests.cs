@@ -146,6 +146,33 @@ public sealed class EvaluadorConciliacionI2B2C1Tests
         gateway.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("0", "USD")]
+    [InlineData("-1", "USD")]
+    [InlineData("12.345", "USD")]
+    [InlineData("125", "")]
+    [InlineData("125", "usd")]
+    [InlineData("125", "USDD")]
+    public async Task F443_ImporteOMonedaCorruptos_NoConsultanProveedor(
+        string importe, string moneda)
+    {
+        using var db = Db();
+        var id = Guid.NewGuid();
+        var intento = Intento(id, EstadoIntentoPago.Incierto);
+        intento.Monto = decimal.Parse(importe, System.Globalization.CultureInfo.InvariantCulture);
+        intento.Moneda = moneda;
+        db.IntentosPago.Add(intento);
+        await db.SaveChangesAsync();
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+
+        var resultado = await Servicio(db, provider).EvaluarAsync(id);
+
+        Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, resultado.Decision);
+        Assert.Equal(EstadoIntentoPago.Incierto, db.IntentosPago.Single().Estado);
+        Assert.Empty(db.ConciliacionesPago);
+        provider.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task CargoConfirmado_EsConsultivoYNoCierraLaOrden()
     {

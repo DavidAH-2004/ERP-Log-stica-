@@ -116,7 +116,13 @@ export default function EtiquetasPage() {
   }, [todos, ids, haySolicitud]);
 
   const conCodigo = useMemo(() => productos.filter(p => esEan13Valido(p.codigoEAN)), [productos]);
-  const sinCodigo = useMemo(() => productos.filter(p => !esEan13Valido(p.codigoEAN)), [productos]);
+  // F444: missing codes and historically malformed codes need different
+  // operator actions. Neither is silently renumbered or printed.
+  const sinCodigo = useMemo(() => productos.filter(p => !p.codigoEAN?.trim()), [productos]);
+  const eanHistoricosInvalidos = useMemo(
+    () => productos.filter(p => Boolean(p.codigoEAN?.trim()) && !esEan13Valido(p.codigoEAN)),
+    [productos],
+  );
 
   const aplicarCantidadATodos = (valor: number) => {
     const cantidad = limitar(valor, 1, CANTIDAD_MAXIMA);
@@ -231,8 +237,16 @@ export default function EtiquetasPage() {
           </table>
 
           {sinCodigo.length > 0 && (
-            <div style={{ color: 'var(--red)', fontSize: '0.85rem' }}>
-              Sin código (no se imprimen): {sinCodigo.map(p => p.sku).join(', ')}
+            <div role="note" style={{ color: 'var(--red)', fontSize: '0.85rem' }}>
+              Sin EAN asignado (no se imprimen): {sinCodigo.map(p => p.sku).join(', ')}.
+              Un Admin puede asignar un código interno mediante la operación autorizada.
+            </div>
+          )}
+          {eanHistoricosInvalidos.length > 0 && (
+            <div role="alert" style={{ color: 'var(--red)', fontSize: '0.85rem' }}>
+              EAN histórico inválido (no se imprime ni se reemplaza automáticamente):
+              {' '}{eanHistoricosInvalidos.map(p => p.sku).join(', ')}.
+              Requiere conciliación con etiquetas existentes antes de emitir uno nuevo.
             </div>
           )}
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>

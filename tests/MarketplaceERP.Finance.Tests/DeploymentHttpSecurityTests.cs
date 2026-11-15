@@ -15,6 +15,9 @@ public class DeploymentHttpSecurityTests
     [InlineData("marketplaceerp-api", true)]
     [InlineData(null, false)]
     [InlineData("  ", false)]
+    [InlineData("marketplaceerp-api-unknown", false)]
+    [InlineData("other-render-service", false)]
+    [InlineData("MARKETPLACEERP-API", false)]
     public void Render_UsaTerminacionTlsDelProveedor(string? nombre, bool esperado) =>
         Assert.Equal(esperado, DeploymentHttpSecurity.RenderTerminatesTls(nombre));
 

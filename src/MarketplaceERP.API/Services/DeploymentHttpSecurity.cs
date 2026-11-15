@@ -14,8 +14,11 @@ public static class DeploymentHttpSecurity
     // HSTS para el dominio HTTPS de la API; sin includeSubDomains ni preload.
     public const string RenderHsts = "max-age=2592000";
 
+    // F445: only known Render services may skip Kestrel redirection and
+    // depend on the external TLS terminator. A spurious environment name
+    // must not silently disable HTTPS enforcement in another deployment.
     public static bool RenderTerminatesTls(string? renderServiceName) =>
-        !string.IsNullOrWhiteSpace(renderServiceName);
+        renderServiceName is "marketplaceerp-api" or "marketplaceerp-api-staging";
 
     /// <summary>
     /// F388: Render's public ingress overwrites CF-Connecting-IP with the

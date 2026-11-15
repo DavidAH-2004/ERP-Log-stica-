@@ -118,6 +118,15 @@ public sealed class EvaluadorConciliacionPago
             return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                 "La referencia de pago local no coincide con la de la orden.");
 
+        // F443: malformed local payment intent cannot be used to query a
+        // future bank provider. This is advisory-only; no stock, payment or
+        // accounting mutation may follow an invalid monetary record.
+        if (intento.Monto <= 0m || intento.Monto != decimal.Round(intento.Monto, 2) ||
+            intento.Moneda is not { Length: 3 } ||
+            intento.Moneda.Any(ch => ch is < 'A' or > 'Z'))
+            return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
+                "Importe o moneda del intento local no válidos: revisión manual obligatoria.");
+
         ConsultaPagoResult? resultado;
         try
         {
