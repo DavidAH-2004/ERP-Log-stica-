@@ -18,6 +18,9 @@ public class Usuario
     public bool Activo { get; set; } = true;
     // F360: persistent, monotonic per-account generation for JWT invalidation.
     public int VersionSesion { get; set; } = 0;
+    // F369: optional shared per-account throttle. Does not store IPs or plaintext identifiers.
+    public int IntentosLoginVentana { get; set; } = 0;
+    public DateTime? InicioVentanaLoginUtc { get; set; }
     public string Nombre { get; set; } = string.Empty;
     public Guid? VendedorId { get; set; }
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;
