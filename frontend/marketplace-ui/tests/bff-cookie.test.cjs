@@ -231,3 +231,40 @@ test('BFF rehidratado no extiende el TTL más allá de iat + 15 minutos', async 
     assert.equal(Object.hasOwn(data, 'token'), false);
   });
 });
+
+
+test('BFF rechaza JWT sin iat numérico y no emite cookies', async () => {
+  const future = Math.floor(Date.now() / 1000) + 1200;
+  const bad = 'e30.' + Buffer.from(JSON.stringify({
+    role: 'Admin', iat: String(future - 300), exp: future,
+  })).toString('base64url') + '.signature';
+  await withBff(async () => new Response(JSON.stringify({
+    token: bad, role: 'Admin', rol: 'Admin',
+    usuario: 'Fixture', expiresAt: new Date(future * 1000).toISOString(),
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  async proxy => {
+    const res = await proxy(request('/api/auth/login', 'POST', {
+      origin: previewOrigin, 'content-type': 'application/json',
+    }, { email: 'a@example.invalid', password: 'test-only' }));
+    assert.equal(res.status, 502);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
+
+test('BFF rechaza JWT cuyo período máximo de 15 minutos ya venció', async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const old = 'e30.' + Buffer.from(JSON.stringify({
+    role: 'Admin', iat: now - 1200, exp: now + 1200,
+  })).toString('base64url') + '.signature';
+  await withBff(async () => new Response(JSON.stringify({
+    token: old, role: 'Admin', rol: 'Admin',
+    usuario: 'Fixture', expiresAt: new Date((now + 1200) * 1000).toISOString(),
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  async proxy => {
+    const res = await proxy(request('/api/auth/login', 'POST', {
+      origin: previewOrigin, 'content-type': 'application/json',
+    }, { email: 'a@example.invalid', password: 'test-only' }));
+    assert.equal(res.status, 502);
+    assert.equal(res.headers.get('set-cookie'), null);
+  });
+});
