@@ -2,6 +2,12 @@
 
 # LOGIMKT S.A. de C.V. — Sistema Integrado ERP, OMS y Marketplace 🚀
 
+> **Estado vigente (14 de noviembre de 2026):** el código fuente consolidado está en `main`; el entorno de mejoras usa `development`. **Render/Neon/Vercel Production todavía requieren una liberación coordinada y respaldos de recuperación verificados**. No habilitar pagos reales por el solo hecho de fusionar código. Los nombres de ramas, commits y cifras de avance de informes antiguos son fotografías históricas.
+
+**Documentación actual:** [Índice de operación y evidencias](docs/README.md) · [Arquitectura de Producción/Desarrollo](docs/OPERACION_ENTORNOS_Y_LIMPIEZA_20261114.md) · [Checklist maestro #65](https://github.com/Marzza01/ERP-Log-stica-/issues/65)
+
+
+
 Bienvenido al repositorio oficial del **Proyecto Integrador Final: Implementación de ERP y Marketplace B2B/B2C** para LOGIMKT S.A. de C.V. Este proyecto digitaliza completamente la cadena de suministro, automatiza el flujo de pedidos y genera KPIs de logística digital en tiempo real.
 
 ---
