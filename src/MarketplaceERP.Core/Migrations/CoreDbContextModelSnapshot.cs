@@ -218,14 +218,6 @@ namespace MarketplaceERP.Core.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasDefaultValueSql("NOW()");
 
-                    b.Property<DateTime?>("InicioVentanaLoginUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("IntentosLoginVentana")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(200)
