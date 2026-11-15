@@ -144,7 +144,7 @@ export default function SesionConteoPage() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 0) {
         // Se conserva el mismo lecturaId: si el servidor sí la recibió, el reintento no cuenta doble.
-        mostrar({ resultado: 'SinConexion', mensaje: 'Sin conexión: vuelve a escanear.' });
+        mostrar({ resultado: 'SinConexion', mensaje: 'Sin conexión: reintenta guardar la misma lectura. No vuelvas a escanear.' });
       } else {
         mostrar({ resultado: 'CodigoInvalido', mensaje: e instanceof Error ? e.message : 'No se pudo registrar la lectura.' });
         volverAEscanear();
@@ -257,7 +257,7 @@ export default function SesionConteoPage() {
                 </div>
               ) : (
                 <button className="btn btn-primary" style={boton} disabled={enviando} onClick={() => guardar()}>
-                  {enviando ? 'Guardando…' : 'Guardar (Enter)'}
+                  {enviando ? 'Guardando…' : aviso?.resultado === 'SinConexion' ? 'Reintentar guardar (Enter)' : 'Guardar (Enter)'}
                 </button>
               )}
               <button className="btn btn-ghost" style={boton} onClick={volverAEscanear}>Descartar</button>
