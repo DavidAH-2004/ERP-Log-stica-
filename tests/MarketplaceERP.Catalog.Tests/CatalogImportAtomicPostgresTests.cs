@@ -225,6 +225,65 @@ public sealed class CatalogImportAtomicPostgresTests : IAsyncLifetime
         Assert.Equal(producto.Id, stock.ProductoId);
     }
 
+    [Fact]
+    public async Task F416_ReimportacionRealPostgres_NoSobrescribeEANAsignado()
+    {
+        if (!_created) return;
+
+        var vendor = Guid.NewGuid();
+        var category = Guid.NewGuid();
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(Row("F416-BARCODE", "25.00", "15"));
+            var initial = await service.ImportarCatalogoCsvAsync(csv, vendor, category);
+            Assert.Equal(1, initial.Exitosos);
+
+            var product = await db.Productos.SingleAsync(p => p.Sku == "F416-BARCODE");
+            product.CodigoEAN = "4006381333931";
+            await db.SaveChangesAsync();
+        }
+
+        var stale = Row("F416-BARCODE", "35.00", "999")
+            .Replace("\"Activo\",\"\",\"Ficha\"",
+                     "\"Activo\",\"5901234123457\",\"Ficha\"");
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(stale);
+            var reimport = await service.ImportarCatalogoCsvAsync(csv, vendor, category);
+            Assert.Equal(1, reimport.Exitosos);
+            Assert.Equal(0, reimport.Errores);
+        }
+
+        await using (var verify = NewContext())
+        {
+            var item = await verify.Productos.AsNoTracking()
+                .SingleAsync(p => p.Sku == "F416-BARCODE");
+            Assert.Equal("4006381333931", item.CodigoEAN);
+            Assert.Equal(35m, item.PrecioB2C);
+            var stock = await verify.StockFisico.AsNoTracking()
+                .SingleAsync(s => s.ProductoId == item.Id);
+            Assert.Equal(15, stock.CantidadTotal);
+            Assert.Equal(0, stock.CantidadReservada);
+        }
+
+        // A second stale CSV with a blank EAN must not delete the issued code.
+        await using (var db = NewContext())
+        {
+            var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+            using var csv = FileOf(Row("F416-BARCODE", "45.00", "12"));
+            var reimport = await service.ImportarCatalogoCsvAsync(csv, vendor, category);
+            Assert.Equal(1, reimport.Exitosos);
+        }
+
+        await using var final = NewContext();
+        var after = await final.Productos.AsNoTracking()
+            .SingleAsync(p => p.Sku == "F416-BARCODE");
+        Assert.Equal("4006381333931", after.CodigoEAN);
+        Assert.Equal(45m, after.PrecioB2C);
+    }
+
     public async Task DisposeAsync()
     {
         if (!_created || _adminConnection is null ||
