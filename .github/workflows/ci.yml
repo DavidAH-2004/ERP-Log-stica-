@@ -177,6 +177,13 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: npm run test:checkout
 
+      # F396: pure barcode / scanner contracts from colleague fork; no DB or external network.
+      - name: F396 EAN-13 and scan result tests
+        working-directory: frontend/marketplace-ui
+        run: |
+          node tests/ean13.test.cjs
+          node tests/resultado-lectura.test.cjs
+
       # 10. Build del frontend
       - name: Test P3 catalog pagination and KPI exports
         working-directory: frontend/marketplace-ui
