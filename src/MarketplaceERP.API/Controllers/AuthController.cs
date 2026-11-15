@@ -125,7 +125,7 @@ public class AuthController : ControllerBase
     /// datos mínimos de identidad. Se comprueba usuario activo y rol vigente.
     /// No habilita revocación global ni sustituye la pasarela de pagos.
     /// </summary>
-    [Authorize]
+    [Authorize(Roles = "Admin,Vendedor,Comprador")]
     [HttpGet("session")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
