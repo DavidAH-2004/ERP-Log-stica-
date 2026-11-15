@@ -84,8 +84,35 @@ public partial class F451ReservasEanHistoricas : Migration
                 IF TG_OP = 'UPDATE' THEN
                     IF OLD."CodigoEAN" IS NOT NULL AND OLD."CodigoEAN" <> ''
                        AND OLD."CodigoEAN" IS DISTINCT FROM NEW."CodigoEAN" THEN
-                        RAISE EXCEPTION 'F451: CodigoEAN historico inmutable; usar rotacion auditada'
-                            USING ERRCODE = '23514';
+                        -- F470: only an approved, distinct-actor, append-only
+                        -- request may transition a formerly-current reservation.
+                        -- The new code must already be reserved to the same SKU
+                        -- as Actual, and the old code must be retained as Alias.
+                        IF NOT EXISTS (
+                            SELECT 1
+                            FROM catalog.rotaciones_ean ev
+                            JOIN catalog.reservas_ean anterior
+                              ON anterior."CodigoEAN" = OLD."CodigoEAN"
+                             AND anterior."ProductoId" = NEW."Id"
+                             AND anterior."Estado" = 'Alias'
+                            JOIN catalog.reservas_ean nueva
+                              ON nueva."CodigoEAN" = NEW."CodigoEAN"
+                             AND nueva."ProductoId" = NEW."Id"
+                             AND nueva."Estado" = 'Actual'
+                            WHERE ev."ProductoId" = NEW."Id"
+                              AND ev."CodigoAnterior" = OLD."CodigoEAN"
+                              AND ev."CodigoNuevo" = NEW."CodigoEAN"
+                              AND ev."Estado" = 'Aprobada' AND ev."Version" = 2
+                              AND ev."AprobadoPor" IS NOT NULL
+                              AND ev."AprobadoPor" <> ev."SolicitadoPor"
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM catalog.rotaciones_ean fin
+                                  WHERE fin."SolicitudId" = ev."SolicitudId"
+                                    AND fin."Version" > 2)
+                        ) THEN
+                            RAISE EXCEPTION 'F451: CodigoEAN historico inmutable; falta aprobacion de rotacion'
+                                USING ERRCODE = '23514';
+                        END IF;
                     END IF;
                 END IF;
 
