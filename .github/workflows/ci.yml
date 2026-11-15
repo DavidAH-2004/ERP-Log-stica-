@@ -1,4 +1,4 @@
-﻿name: CI - MarketplaceERP
+name: CI - MarketplaceERP
 
 on:
   push:
@@ -321,6 +321,12 @@ jobs:
         run: |
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
+
+      # F405: validate 30 physical-size grid slots in Chromium and print-to-PDF,
+      # without a physical printer, device, external API or persistent data.
+      - name: F405 Avery 5160 print layout (Chromium, virtual PDF only)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f405-avery-print-layout.mjs
 
       - name: Test real browser with mock API only
         working-directory: frontend/marketplace-ui
