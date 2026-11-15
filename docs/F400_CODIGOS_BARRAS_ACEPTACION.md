@@ -145,3 +145,29 @@ En F419 el importador PostgreSQL ya abortaba el lote completo al detectar un EAN
 5. **Criterio de EAN:** se mantiene por defecto la inmutabilidad de identificadores históricos y se **excluye** la operación destructiva de normalización masiva del fork. Antes de permitir rotación/alias se requiere diseño independiente con auditoría, compatibilidad de etiquetas impresas y aprobación de negocio. La aceptación expresa de esa política queda pendiente.
 
 **No confundir:** las pruebas ópticas de software, PDF virtual, cámara virtual y 47/47 etiquetas de Vendedor **no completan las pruebas físicas ni la aceptación Admin**. Dejar F398/F400 sin marcar y PR #68 DRAFT hasta contar con resultados reales y gate #65 para `main`.
+
+## F423 — Revisión delimitada del alcance de PR #68 (15-nov-2026)
+
+**Esto es inventario técnico de la diferencia de PR y revisión preliminar por permisos/migraciones, no un APPROVE ni aceptación productiva.** Base `main@8325cce`, origen `development@4ed07f8`; [PR #68](https://github.com/Marzza01/ERP-Log-stica-/pull/68) **DRAFT**, no fusionada. GitHub REST `/pulls/68/files` y `/pulls/68/reviews`: **91 archivos** (60 nuevos / 31 modificados), **120 commits**. Única revisión de PR previa: `COMMENTED`, no `APPROVED`. `mergeable_state=clean` no acredita aceptación ni producción segura.
+
+| Subárea del diff | Archivos | Comprobación de alcance / riesgo |
+|---|---:|---|
+| Autenticación BFF y frontend | 6 | `bffCookieMode.js`, `middleware.js`, `AuthContext`, API cliente, login. **El prototipo de cookie solo se activa** en Preview mediante dos flags explícitos; no habilitarlo automáticamente en Production |
+| Catálogo, etiquetas y cámara frontend | 7 | Lectura EAN/etiquetas y cámara; no modifica inventario. Avery/Cámara F405/F406/F411/F422 PASS solo en simulación |
+| UI de conteos y escaneo | 7 | Flujo Admin con confirmación de cantidad, lectura con UUID; comprador/vendedor no deben acceder al inventario global |
+| Catálogo backend, índices y sesiones | 16 | **3 migraciones de Catalog** F402/F399/F419. La última se aplicó a Neon Development con respaldo/huella de 500 productos preservada; **no aplicadas a Production** |
+| Core/autenticación | 6 | **2 migraciones de Core** para versión de sesión JWT y limitación distribuida de login. Flags de activación requieren gates y recuperación real |
+| API de seguridad, observabilidad y auth | 5 | `AuthController`, `ApiSecurity`, `Program`, cabeceras y auditoría: **alcance fuera de solo códigos de barras**, revisar releases reversibles |
+| API de catálogo y conteos | 3 | `ProductosCodigoBarrasController` restringe Admin/Vendedor y filtra por vendedor; `SesionesConteoController` es **Admin-only**. El PUT general conserva `CodigoEAN` y CSV no renumera SKU existentes |
+| Tests .NET/Node/Chromium | 32 | CI F422 real **4/4 success** en [push #43749862314](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43749862314) y [PR #43749866346](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43749866346): 905/905 .NET; cámara sintética, impresión virtual y PostgreSQL local. CI documental de `4ed07f8` **4/4 success** en [push #43750404405](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43750404405) y [PR #43750410892](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43750410892) |
+| Documentación, CI y monitores | 6 | No reemplazan recuperación efectiva de secretos/roles y rollback de Production |
+| Dependencias y enrutador de App | 3 | `package.json/lock`, `App.tsx`: superficie adicional, requiere smoke tras deploy |
+
+**Controles confirmados con fuentes/CI:** `Get etiquetas` anon 401, Comprador 403, Vendedor dueño 200, Admin 200 **en CI local PostgreSQL**; Vendedor real en Vercel Preview/Render Desarrollo: 47/47 etiquetas, EAN propio 200 e inexistente 404; matriz real Comprador/Vendedor: 8 casos × 2 backends PASS. `F381_REAL_API_BFF_PASS` ejercita tres roles y guardas CSRF/cookie con API real y DB desechable, sin activar cookies en Preview real. Rutas `POST /{id}/codigo-barras/asignar` solo Admin; sesiones de conteo admin-only. Sin contraseñas, datos personales ni escrituras Productivas en esta revisión.
+
+**Gates precisos que siguen pendientes:**
+- **F398:** impresión Avery papel a escala 100 %, cámara real autorizada y lector USB/Bluetooth físico. Windows reportó `Spooler=Stopped` y sin impresora/lector enumerados; no se alteró configuración.
+- **F400:** inicio de sesión positivo de **Admin QA real en Vercel Preview** y aceptación formal de conservación de EAN históricos; las credenciales Admin no se hallaron en el cofre DPAPI QA consultado, y el script local F290 solicita contraseña interactiva. Los tests Admin contra PostgreSQL CI **no reemplazan** ese login real.
+- **PR/release:** este diff **no es solo barcode**; incluye autenticación, BFF, throttling, migrations Core y Catalog. Requiere revisión/aprobación independiente del conjunto, plan de secuencia de migraciones/flags/rollback y los **7 pendientes de #65**. Ninguna aprobación de merge ni autorización de Render/Neon/Vercel Production queda implícita; `main` se mantiene protegido, PR sigue DRAFT.
+
+**Conclusión F423:** alcance de archivos y riesgos de permisos/migración identificados, con pruebas automatizadas y Desarrollo verdes; **no se declara F398, F400 ni promoción completa**.
