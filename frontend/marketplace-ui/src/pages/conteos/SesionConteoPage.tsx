@@ -64,6 +64,8 @@ export default function SesionConteoPage() {
   const [enviando, setEnviando] = useState(false);
   const escaneoRef = useRef<HTMLInputElement>(null);
   const cantidadRef = useRef<HTMLInputElement>(null);
+  // A stale async lookup must not clear or validate the operator's next scan.
+  const lookupActualRef = useRef<string | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -85,6 +87,7 @@ export default function SesionConteoPage() {
   };
 
   const volverAEscanear = () => {
+    lookupActualRef.current = null;
     setPendiente(null);
     setCantidad('');
     setOpciones(null);
@@ -105,9 +108,11 @@ export default function SesionConteoPage() {
     setOpciones(null);
     setCantidad('');
     const lecturaId = nuevoId();
+    lookupActualRef.current = lecturaId;
     setPendiente({ codigo, lecturaId, verificado: false });
     try {
       const p = await codigosBarrasApi.buscarPorCodigo(codigo);
+      if (lookupActualRef.current !== lecturaId) return;
       // A delayed response must not authenticate a *different* pending scan,
       // including a rescan of the same barcode after Discard.
       setPendiente(actual => (actual?.lecturaId === lecturaId
@@ -115,6 +120,7 @@ export default function SesionConteoPage() {
         : actual));
       setTimeout(() => cantidadRef.current?.focus(), 0);
     } catch (e) {
+      if (lookupActualRef.current !== lecturaId) return;
       if (e instanceof ApiError && e.status === 404) {
         mostrar({ resultado: 'ProductoNoEncontrado', mensaje: `No hay producto con el código ${codigo}.` });
       } else if (e instanceof ApiError && e.status === 0) {

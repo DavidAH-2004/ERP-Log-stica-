@@ -64,9 +64,12 @@ async function mockApi(page){
         sku:'F411-TEST',nombre:'Producto de prueba',ubicacionCodigo:'A1',opciones:null});
     }
     if(path===('/api/productos/por-codigo/'+valid)&&method==='GET'){
-      if(s.lookupDelayMs>0){const wait=s.lookupDelayMs;s.lookupDelayMs=0;await delay(wait);}
-      if(s.lookupFailure){
-        const failure=s.lookupFailure;s.lookupFailure=null;
+      // Capture each lookup's outcome BEFORE awaiting, so two overlapping
+      // requests can resolve in opposite order deterministically.
+      const failure=s.lookupFailure;s.lookupFailure=null;
+      const wait=s.lookupDelayMs;s.lookupDelayMs=0;
+      if(wait>0)await delay(wait);
+      if(failure){
         if(failure==='network')return route.abort('failed');
         return fulfill(route,{mensaje:'Catalog temporarily unavailable'},503);
       }
@@ -187,6 +190,29 @@ try{
   await scanner.waitFor({state:'visible'});
   assert.equal(await qty.count(),0,'Network failure must clear quantity form');
   assert.equal(state.posts.length,3,'Network failure must not write counts');
+
+  // F429: the first lookup fails *after* the operator has discarded it
+  // and the new lookup of the SAME EAN has succeeded. Its stale error
+  // must not cancel the newer validated scan.
+  state.lookupDelayMs=1100;
+  state.lookupFailure='server';
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  await page.getByRole('button',{name:'Descartar'}).click();
+  await scanner.waitFor({state:'visible'});
+  await scanner.fill(valid);
+  await scanner.press('Enter');
+  const newerSave=page.getByRole('button',{name:'Guardar (Enter)'});
+  await newerSave.waitFor({state:'visible'});
+  await page.waitForFunction(()=>{
+    const button=[...document.querySelectorAll('button')].find(b=>b.textContent?.includes('Guardar (Enter)'));
+    return button && !button.disabled;
+  },null,{timeout:8000});
+  await delay(1500);
+  assert.equal(await newerSave.isVisible(),true,'Stale 503 must not close the newer scan');
+  assert.equal(await newerSave.isEnabled(),true,'Stale 503 must not disable newer scan');
+  assert.equal(state.posts.length,3,'No count writes from stale lookups');
+  await page.getByRole('button',{name:'Descartar'}).click();
   await ctx.close();
 
   // F422: exercitar la ruta REAL de @zxing/browser a través de
@@ -271,6 +297,7 @@ try{
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
+    f429StaleLookupCannotClearNewScan:true,
     cameraSyntheticDecode:true,cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
   }));
 }finally{
