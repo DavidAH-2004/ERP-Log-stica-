@@ -31,6 +31,27 @@ public sealed class RotacionesEanController : ControllerBase
             configuration.GetValue<bool>("Barcodes:EnableEanRotation");
     }
 
+    [HttpGet("{productoId:guid}/codigo-barras/rotaciones")]
+    public async Task<IActionResult> Historial(Guid productoId, CancellationToken ct)
+    {
+        if (!_habilitada) return Inactiva();
+        if (!ActorAdmin(out _)) return Unauthorized(new { mensaje = "Admin autenticado requerido." });
+        try
+        {
+            var eventos = await _service.HistorialAsync(productoId, ct);
+            Response.Headers.CacheControl = "no-store";
+            return Ok(eventos);
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest(new { mensaje = "Producto inválido." });
+        }
+        catch (PostgresException ex)
+        {
+            return MapearSql(ex);
+        }
+    }
+
     [HttpPost("{productoId:guid}/codigo-barras/rotaciones")]
     public async Task<IActionResult> Solicitar(
         Guid productoId, [FromBody] SolicitarRotacionEanRequest request,

@@ -1,3 +1,4 @@
+using System.Data;
 using MarketplaceERP.Catalog.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -45,4 +46,52 @@ public sealed class RotacionEanService
             SELECT catalog.f470_aprobar_rotacion({solicitudId}, {actorAdmin}) AS "Value"
             """).SingleAsync(ct);
     }
+    /// <summary>Read-only, capped Admin audit. No operator PII or credentials.</summary>
+    public async Task<IReadOnlyList<RotacionEanEvento>> HistorialAsync(
+        Guid productoId, CancellationToken ct = default)
+    {
+        if (productoId == Guid.Empty)
+            throw new ArgumentException("Producto inválido.", nameof(productoId));
+
+        var connection = _db.Database.GetDbConnection();
+        var openedHere = connection.State != ConnectionState.Open;
+        if (openedHere) await connection.OpenAsync(ct);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT "SolicitudId", "Version", "Estado", "CodigoAnterior", "CodigoNuevo",
+                       "SolicitadoUtc", "AprobadoUtc", "EjecutadoUtc"
+                FROM catalog.rotaciones_ean
+                WHERE "ProductoId" = @producto
+                ORDER BY "SolicitadoUtc" DESC, "Version" DESC
+                LIMIT 100
+                """;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "producto";
+            parameter.Value = productoId;
+            command.Parameters.Add(parameter);
+            var result = new List<RotacionEanEvento>();
+            await using var reader = await command.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                result.Add(new RotacionEanEvento(
+                    reader.GetGuid(0), reader.GetInt32(1), reader.GetString(2),
+                    reader.GetString(3), reader.GetString(4), reader.GetDateTime(5),
+                    reader.IsDBNull(6) ? null : reader.GetDateTime(6),
+                    reader.IsDBNull(7) ? null : reader.GetDateTime(7)));
+            }
+            return result;
+        }
+        finally
+        {
+            if (openedHere) await connection.CloseAsync();
+        }
+    }
+
 }
+
+public sealed record RotacionEanEvento(
+    Guid SolicitudId, int Version, string Estado,
+    string CodigoAnterior, string CodigoNuevo,
+    DateTime SolicitadoUtc, DateTime? AprobadoUtc, DateTime? EjecutadoUtc);

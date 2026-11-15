@@ -341,6 +341,16 @@ public sealed class F451EanReservationsMigrationPgTests
                     events.Add(reader.GetInt32(0) + ":" + reader.GetString(1));
                 Assert.Equal(new[] { "1:Solicitada", "2:Aprobada", "3:Ejecutada" }, events);
             }
+            await using (var db = NewContext())
+            {
+                var history = await new RotacionEanService(db).HistorialAsync(p1.Id);
+                var events = history.Where(e => e.SolicitudId == requestOne)
+                    .OrderBy(e => e.Version).ToArray();
+                Assert.Equal(new[] { 1, 2, 3 },
+                    events.Select(e => e.Version).ToArray());
+                Assert.Equal("Ejecutada", events[2].Estado);
+                Assert.Equal(second, events[2].CodigoNuevo);
+            }
 
             // A previously printed label never becomes another product's code.
             await using (var db = NewContext())

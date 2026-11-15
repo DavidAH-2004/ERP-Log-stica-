@@ -79,6 +79,7 @@ public class AutorizacionU2Tests
     [InlineData(typeof(KpisDashboardController), "ObtenerDashboard")]
     [InlineData(typeof(LiquidacionesController), "Historial")]
     [InlineData(typeof(UsuariosController), "Crear")]
+    [InlineData(typeof(RotacionesEanController), "Historial")]
     [InlineData(typeof(RotacionesEanController), "Solicitar")]
     [InlineData(typeof(RotacionesEanController), "Aprobar")]
     public async Task AdministrativeActions_RejectAnonymousAndNonAdmin(Type controller, string action)
@@ -266,8 +267,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
         Assert.Equal(30, controllers.Length);
-        Assert.Equal(108, actions); // F360 agrega POST api/auth/logout autorizado.
-        Assert.Equal(109, routes); // Productos/GetAlertasStock tiene dos alias.
+        Assert.Equal(109, actions); // F360 agrega POST api/auth/logout autorizado.
+        Assert.Equal(110, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]
