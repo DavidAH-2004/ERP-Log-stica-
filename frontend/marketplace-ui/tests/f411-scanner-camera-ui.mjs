@@ -157,7 +157,7 @@ try{
   // F437: never allow operator to leave, close or cancel the session while
   // the server's outcome is unknown. No business mutation should be sent.
   for(const name of ['Volver','Cerrar sesión','Cancelar sesión']){
-    assert.equal(await page.getByRole('button',{name,exact:true}).isDisabled(),true,
+    assert.equal(await page.getByRole('main').getByRole('button',{name,exact:true}).isDisabled(),true,
       'F437 must block '+name+' while POST outcome is uncertain');
   }
   assert.equal(state.posts.length,2);
@@ -167,7 +167,7 @@ try{
   assert.equal(state.posts[1].cantidad,6);
   assert.deepEqual(state.posts[2],state.posts[1],'Retry must preserve UUID and amount');
   for(const name of ['Volver','Cerrar sesión','Cancelar sesión']){
-    assert.equal(await page.getByRole('button',{name,exact:true}).isEnabled(),true,
+    assert.equal(await page.getByRole('main').getByRole('button',{name,exact:true}).isEnabled(),true,
       'F437 must restore '+name+' after successful reconciliation');
   }
   assert.equal(state.successful,2);
