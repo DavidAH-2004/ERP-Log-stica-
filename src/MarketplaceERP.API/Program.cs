@@ -172,6 +172,11 @@ if (app.Environment.IsProduction())
 
 app.UseCors();
 
+// F367: built-in privacy-safe status/latency telemetry, including 401/429/503.
+// Keep this before authentication and rate limiting so rejected requests are counted.
+// No Authorization, cookies, user identifiers, query strings or raw URL paths logged.
+app.UseMiddleware<HttpRequestAuditMiddleware>();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
