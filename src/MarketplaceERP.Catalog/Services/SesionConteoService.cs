@@ -1,7 +1,6 @@
 using MarketplaceERP.Catalog.Data;
 using MarketplaceERP.Catalog.Entities;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 
 namespace MarketplaceERP.Catalog.Services;
 
@@ -18,12 +17,12 @@ internal sealed class SesionConteoService : ISesionConteoService
     private readonly IConteoCiclicoService _conteos;
     private readonly bool _permitirHistoricos;
     public SesionConteoService(CatalogDbContext db, IConteoCiclicoService conteos,
-        IConfiguration? configuration = null)
+        bool permitirHistoricos = false)
     {
         _db = db;
         _conteos = conteos;
-        // Shared flag with read-only API; OFF until F451 migration and acceptance.
-        _permitirHistoricos = configuration?.GetValue<bool>("Barcodes:EnableHistoricalAliasLookup") ?? false;
+        // Shared opt-in, OFF until F451 migration and hardware acceptance.
+        _permitirHistoricos = permitirHistoricos;
     }
 
     // ── Apertura ─────────────────────────────────────────────────────────────

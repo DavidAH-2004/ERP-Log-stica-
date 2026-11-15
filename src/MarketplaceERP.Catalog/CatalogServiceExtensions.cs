@@ -33,7 +33,14 @@ public static class CatalogServiceExtensions
         services.AddScoped<IInventoryService, InventoryService>();
         services.AddScoped<IAjusteInventarioService, AjusteInventarioService>();
         services.AddScoped<IConteoCiclicoService, ConteoCiclicoService>();
-        services.AddScoped<ISesionConteoService, SesionConteoService>();
+        // F460: explicit configuration parsing in composition root; the
+        // service stays OFF without a verified, enabled feature flag.
+        services.AddScoped<ISesionConteoService>(provider =>
+            new SesionConteoService(
+                provider.GetRequiredService<CatalogDbContext>(),
+                provider.GetRequiredService<IConteoCiclicoService>(),
+                bool.TryParse(configuration["Barcodes:EnableHistoricalAliasLookup"],
+                    out var enabled) && enabled));
         services.AddScoped<IAlertaInventarioService, AlertaInventarioService>();
         services.AddScoped<ICatalogImportService, CatalogImportService>();
         services.AddScoped<IWmsService, WmsService>();

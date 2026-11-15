@@ -233,12 +233,8 @@ public sealed class F451EanReservationsMigrationPgTests
                     new AjusteInventarioService(
                         db, Microsoft.Extensions.Logging.Abstractions.NullLogger<AjusteInventarioService>.Instance),
                     Microsoft.Extensions.Logging.Abstractions.NullLogger<ConteoCiclicoService>.Instance);
-                var flags = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
-                    .AddInMemoryCollection(new Dictionary<string, string?>
-                    {
-                        ["Barcodes:EnableHistoricalAliasLookup"] = "true"
-                    }).Build();
-                var service = new SesionConteoService(db, conteos, flags);
+                var service = new SesionConteoService(
+                    db, conteos, permitirHistoricos: true);
                 var opened = await service.AbrirRecorridoAsync(location.Pasillo, "admin-qa");
                 Assert.True(opened.Exitoso);
 
