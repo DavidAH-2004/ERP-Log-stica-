@@ -159,8 +159,12 @@ test('BFF requiere CSRF válido y reemplaza Authorization inyectado por JWT del 
 });
 
 test('BFF logout solo con Origin + CSRF y elimina ambas cookies', async () => {
-  await withBff(async () => { throw new Error('logout should not contact upstream'); },
-    async proxy => {
+  let revokeCalls = 0;
+  await withBff(async (_url, options) => {
+    revokeCalls++;
+    assert.equal(options.headers.get('authorization'), 'Bearer ' + jwt);
+    return new Response(null, { status: 204 });
+  }, async proxy => {
       const csrf = 'b'.repeat(43);
       const c = '__Host-erp_session=' + jwt + '; __Host-erp_csrf=' + csrf;
       const bad = await proxy(request('/api/auth/logout', 'POST',
