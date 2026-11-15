@@ -271,6 +271,31 @@ public sealed class EvaluadorConciliacionI2B2C1Tests
         Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, actual.Decision);
     }
 
+    [Theory]
+    [InlineData(" TXN-ABC")]
+    [InlineData("TXN-ABC ")]
+    [InlineData("TXN-ABC\n")]
+    [InlineData("TXN-ABC\r")]
+    public async Task F448_IdentificadorExternoAmbiguo_RequiereRevisionSinMutaciones(string idExterno)
+    {
+        using var db = Db();
+        var id = Guid.NewGuid();
+        db.IntentosPago.Add(Intento(id, EstadoIntentoPago.Incierto));
+        await db.SaveChangesAsync();
+        var gateway = new Mock<IPaymentRecoveryGateway>();
+        gateway.Setup(g => g.ConsultarEstadoAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConsultaPagoResult(EstadoCobroProveedor.Confirmado, idExterno));
+
+        var resultado = await Servicio(db, gateway).EvaluarAsync(id);
+
+        Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, resultado.Decision);
+        Assert.Null(resultado.TransaccionId);
+        Assert.Equal(EstadoIntentoPago.Incierto, db.IntentosPago.Single().Estado);
+        Assert.Empty(db.ConciliacionesPago);
+        gateway.Verify(g => g.ReembolsarAsync(It.IsAny<ReembolsoPagoRequest>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Fact]
     public async Task ErrorDeRed_EstadoQuedaSinCambios()
     {
