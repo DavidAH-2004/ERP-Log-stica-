@@ -259,6 +259,43 @@ assert.equal((await searched.json()).id, fixtureA);
 assert.equal((await call(request('/api/productos/por-codigo/' +
   issued[0].codigoEAN, 'GET', { cookie: sellerSession.cookies }))).status,
   404, 'Another vendor may not see barcode owner');
+
+// F412: explicit label IDs must not bypass the seller ownership filter.
+// The F105 product is owned by a different seller from F384's Seller account,
+// and the same product must be visible to Admin for valid printing.
+const selectedAdmin = await call(request(
+  '/api/productos/etiquetas?ids=' + fixtureA, 'GET', {
+    cookie: cookies.header,
+  }));
+assert.equal(selectedAdmin.status, 200, 'Admin may inspect the requested label');
+const selectedAdminBody = await selectedAdmin.json();
+assert.equal(selectedAdminBody.length, 1, 'Admin should see exactly one selected label');
+assert.equal(selectedAdminBody[0].id, fixtureA);
+assert.equal(selectedAdminBody[0].codigoEAN, issued[0].codigoEAN);
+const selectedSeller = await call(request(
+  '/api/productos/etiquetas?ids=' + fixtureA, 'GET', {
+    cookie: sellerSession.cookies,
+  }));
+assert.equal(selectedSeller.status, 200, 'Seller may make a filtered selection');
+assert.deepEqual(await selectedSeller.json(), [],
+  'Seller may not extract the labels of another seller using their product IDs');
+assert.equal((await call(request(
+  '/api/productos/etiquetas?ids=' + fixtureA, 'GET', {
+    cookie: buyerSession.cookies,
+  }))).status, 403, 'Buyer cannot select internal product labels');
+assert.equal((await call(request(
+  '/api/productos/etiquetas?ids=not-a-uuid', 'GET', {
+    cookie: cookies.header,
+  }))).status, 400, 'Malformed label selections must fail validation');
+console.log('F412_LABEL_SELECTION_ISOLATION_PASS ' + JSON.stringify({
+  adminSelected: 1,
+  sellerCrossOwnerSelected: 0,
+  buyerDenied: true,
+  invalidUuidDenied: true,
+  database: 'CI disposable PostgreSQL',
+  productionTouched: false
+}));
+
 assert.equal((await call(request('/api/productos/' + fixtureA +
   '/codigo-barras/asignar', 'POST', {
     cookie: sellerSession.cookies, origin: browserOrigin,
