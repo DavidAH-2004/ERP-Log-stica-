@@ -97,8 +97,10 @@ public static class CatalogDataGenerator
             }
         };
 
-        long eanBase = 7410000000000;
-        int skuCounter = 1;
+        // F417: los códigos 741... anteriores eran correlativos sintéticos
+        // sin dígito verificador ni prueba de titularidad GS1. El generador
+        // prepara datos maestros, no emite identificadores operacionales.
+        // Admin asigna códigos internos del prefijo 20 con secuencia segura.
         var rnd = new Random(42); // Semilla fija para reproducibilidad
 
         foreach (var cat in categories)
@@ -134,8 +136,7 @@ public static class CatalogDataGenerator
                 string dimensiones = $"{rnd.Next(10, 60)}x{rnd.Next(10, 50)}x{rnd.Next(5, 30)} cm";
                 string unidad = (cat.Prefijo == "ALM" && i % 3 == 0) ? "Caja x12" : (cat.Prefijo == "ROP" && i % 5 == 0) ? "Pack x3" : "Unidad";
                 string estado = (i % 35 == 0) ? "Inactivo" : "Activo";
-                string ean = (eanBase + skuCounter).ToString();
-                skuCounter++;
+                string ean = string.Empty;
 
                 string desc = $"{nombre} de alta rotación para el mercado salvadoreño. Distribuido por {prov}.";
 

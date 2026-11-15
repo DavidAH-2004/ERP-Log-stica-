@@ -297,6 +297,17 @@ public class CatalogImportService : ICatalogImportService
 
                 if (producto is null)
                 {
+                    // F417: los identificadores importados solo se aceptan si
+                    // cumplen EAN-13. No reparar ni inventar un checksum:
+                    // un código diferente invalidaría etiquetas históricas.
+                    // NULL permite emitir posteriormente un EAN interno mediante
+                    // el flujo autorizado de asignación Admin.
+                    string? eanValido = CodigoBarras.EsEan13Valido(ean) ? ean : null;
+                    if (ean.Length > 0 && eanValido is null)
+                        _logger.LogWarning(
+                            "CSV F417 omitió EAN no conforme para SKU nuevo {Sku}; requiere asignación Admin.",
+                            sku);
+
                     producto = new Producto
                     {
                         Id = Guid.NewGuid(),
@@ -314,7 +325,7 @@ public class CatalogImportService : ICatalogImportService
                         DimensionesCm = dimensiones,
                         UnidadMedida = unidad,
                         EstadoProducto = estado,
-                        CodigoEAN = ean,
+                        CodigoEAN = eanValido,
                         Descripcion = descripcion,
                         VendedorId = defaultVendedorId,
                         CategoriaId = defaultCategoriaId,
