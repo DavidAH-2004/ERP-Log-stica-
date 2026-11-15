@@ -16,6 +16,8 @@ public class Usuario
     public string PasswordHash { get; set; } = string.Empty;
     public string Rol { get; set; } = string.Empty;
     public bool Activo { get; set; } = true;
+    // F360: persistent, monotonic per-account generation for JWT invalidation.
+    public int VersionSesion { get; set; } = 0;
     public string Nombre { get; set; } = string.Empty;
     public Guid? VendedorId { get; set; }
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;
