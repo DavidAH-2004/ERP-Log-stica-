@@ -93,8 +93,8 @@ public class DeploymentHttpSecurityTests
         var context = new DefaultHttpContext();
         context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.11");
         context.Request.Headers["X-Forwarded-For"] = "10.0.0.1, 203.0.113.99";
-        context.Request.Headers["CF-Connecting-IP"] = "203.0.113.44";
-        Assert.Equal("203.0.113.44",
+        context.Request.Headers["CF-Connecting-IP"] = "8.8.8.8";
+        Assert.Equal("8.8.8.8",
             DeploymentHttpSecurity.LoginRateLimitPartition(context, renderService));
     }
 
@@ -127,6 +127,10 @@ public class DeploymentHttpSecurityTests
     [InlineData("192.0.0.8")]
     [InlineData("198.18.0.1")]
     [InlineData("198.19.255.254")]
+    [InlineData("192.0.2.10")]
+    [InlineData("198.51.100.10")]
+    [InlineData("203.0.113.10")]
+    [InlineData("2001:db8::1")]
     [InlineData("224.0.0.1")]
     [InlineData("fc00::123")]
     [InlineData("fe80::123")]

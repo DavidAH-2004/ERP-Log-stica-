@@ -63,7 +63,12 @@ public static class DeploymentHttpSecurity
             return true;
 
         if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-            return (ip.GetAddressBytes()[0] & 0xfe) == 0xfc; // fc00::/7 ULA
+        {
+            var a = ip.GetAddressBytes();
+            // F453: unique-local and IPv6 documentation prefix are not public clients.
+            return (a[0] & 0xfe) == 0xfc ||
+                   (a[0] == 0x20 && a[1] == 0x01 && a[2] == 0x0d && a[3] == 0xb8);
+        }
 
         var b = ip.GetAddressBytes();
         return b[0] == 0 || b[0] == 10 || b[0] >= 224 ||
@@ -74,7 +79,11 @@ public static class DeploymentHttpSecurity
                // F450: protocol assignments and benchmarking addresses
                // are not valid routable client IPs for login partitioning.
                (b[0] == 192 && b[1] == 0 && b[2] == 0) ||
-               (b[0] == 198 && (b[1] == 18 || b[1] == 19));
+               (b[0] == 198 && (b[1] == 18 || b[1] == 19)) ||
+               // RFC 5737 TEST-NET ranges must not appear as real ingress clients.
+               (b[0] == 192 && b[1] == 0 && b[2] == 2) ||
+               (b[0] == 198 && b[1] == 51 && b[2] == 100) ||
+               (b[0] == 203 && b[1] == 0 && b[2] == 113);
     }
 
     /// <summary>

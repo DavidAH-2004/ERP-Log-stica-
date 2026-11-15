@@ -121,9 +121,7 @@ public sealed class EvaluadorConciliacionPago
         // F443: malformed local payment intent cannot be used to query a
         // future bank provider. This is advisory-only; no stock, payment or
         // accounting mutation may follow an invalid monetary record.
-        if (intento.Monto <= 0m || intento.Monto != decimal.Round(intento.Monto, 2) ||
-            intento.Moneda is not { Length: 3 } ||
-            intento.Moneda.Any(ch => ch is < 'A' or > 'Z'))
+        if (!ValidacionIntegridadPago.MontoMonedaValidos(intento.Monto, intento.Moneda))
             return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                 "Importe o moneda del intento local no válidos: revisión manual obligatoria.");
 
@@ -157,9 +155,7 @@ public sealed class EvaluadorConciliacionPago
                 // A different ID after trimming can conceal a provider mismatch;
                 // control characters can also poison audit/export records.
                 var transaccion = resultado.TransaccionId;
-                if (string.IsNullOrWhiteSpace(transaccion) || transaccion.Length > 200 ||
-                    !string.Equals(transaccion, transaccion.Trim(), StringComparison.Ordinal) ||
-                    transaccion.Any(char.IsControl))
+                if (!ValidacionIntegridadPago.IdProveedorValido(transaccion))
                     return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                         "El proveedor confirmo un cargo sin identificador de transaccion valido.");
 
