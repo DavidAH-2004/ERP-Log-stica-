@@ -27,6 +27,20 @@ type ForbiddenHandler = (message: string) => void;
 let onUnauthorized: UnauthorizedHandler | null = null;
 let onForbidden: ForbiddenHandler | null = null;
 
+// F354: explicit BFF mode is enabled only by AuthProvider in a separately
+// configured Preview build. Never retain a JWT in browser-readable storage.
+let cookieBffMode = false;
+let cookieCsrfToken: string | null = null;
+
+export function configureCookieBffMode(enabled: boolean): void {
+  cookieBffMode = enabled;
+  if (!enabled) cookieCsrfToken = null;
+}
+
+export function setCookieBffCsrfToken(token: string | null): void {
+  cookieCsrfToken = token;
+}
+
 export function setUnauthorizedHandler(handler: UnauthorizedHandler) {
   onUnauthorized = handler;
 }
@@ -39,17 +53,24 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = localStorage.getItem('erp_token');
+  const token = cookieBffMode ? null : localStorage.getItem('erp_token');
+  const method = (options.method ?? 'GET').toUpperCase();
+  const stateChange = !['GET', 'HEAD'].includes(method);
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(cookieBffMode && stateChange && cookieCsrfToken
+      ? { 'X-ERP-CSRF': cookieCsrfToken } : {}),
     ...options.headers,
   };
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options, headers,
+      credentials: cookieBffMode ? 'same-origin' : options.credentials,
+    });
   } catch (netErr: any) {
     throw new ApiError(0, 'No se pudo conectar con el servidor. Verifica tu conexión a la red o el estado del backend.');
   }
@@ -83,9 +104,13 @@ async function request<T>(
         if (onUnauthorized) {
           onUnauthorized();
         } else {
-          localStorage.removeItem('erp_token');
-          localStorage.removeItem('erp_usuario');
-          localStorage.removeItem('erp_expires_at');
+          if (cookieBffMode) {
+            cookieCsrfToken = null;
+          } else {
+            localStorage.removeItem('erp_token');
+            localStorage.removeItem('erp_usuario');
+            localStorage.removeItem('erp_expires_at');
+          }
           if (window.location.pathname !== '/login') {
             window.location.href = '/login';
           }
