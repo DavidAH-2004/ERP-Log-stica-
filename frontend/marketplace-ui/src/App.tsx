@@ -98,7 +98,11 @@ function RouteLoading() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // F354: wait for the BFF to verify the HttpOnly session before redirecting.
+  // The legacy bearer mode starts immediately (isLoading=false).
+  if (isLoading) return <RouteLoading />;
 
   return (
     <Suspense fallback={<RouteLoading />}>
