@@ -4,13 +4,13 @@ on:
   push:
     branches:
       - main
-      - develop
+      - development
       - 'fix/**'
       - 'staging/**'
   pull_request:
     branches:
       - main
-      - develop
+      - development
       - 'staging/**'
 
 permissions:
