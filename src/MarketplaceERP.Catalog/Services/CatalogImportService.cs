@@ -353,7 +353,16 @@ public class CatalogImportService : ICatalogImportService
                     producto.DimensionesCm = dimensiones;
                     producto.UnidadMedida = unidad;
                     producto.EstadoProducto = estado;
-                    producto.CodigoEAN = ean;
+                    // F415: el EAN ya asignado es un identificador operacional.
+                    // Una reimportación de datos maestros NO puede renumerar,
+                    // borrar ni asignar códigos de un SKU preexistente.
+                    // Usar exclusivamente el endpoint de asignación Admin
+                    // para productos sin EAN; rotaciones requieren auditoría.
+                    if (!string.Equals(producto.CodigoEAN ?? string.Empty, ean,
+                            StringComparison.Ordinal))
+                        _logger.LogWarning(
+                            "CSV ignoró intento de cambio EAN para SKU existente {Sku}; se conservó el identificador.",
+                            producto.Sku);
                     producto.Descripcion = descripcion;
                     producto.EstaPublicado = (estado == "Activo");
 
