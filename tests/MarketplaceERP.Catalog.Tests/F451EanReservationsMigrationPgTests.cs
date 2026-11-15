@@ -204,6 +204,60 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal(actual,
                     (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
             }
+
+            // F460: WMS must preserve the EXACT old label scanned in the
+            // same idempotent inventory operation, without changing product EAN.
+            await using (var db = NewContext())
+            {
+                var location = new UbicacionAlmacen
+                {
+                    Id = Guid.NewGuid(),
+                    Codigo = "F460-QA-UBICACION",
+                    Pasillo = "F460-PASILLO",
+                    Rack = "01", Nivel = 1, Posicion = "01",
+                    CapacidadMaxima = 1000, EstaOcupada = true, Zona = "General"
+                };
+                db.UbicacionesAlmacen.Add(location);
+                var stock = new StockFisico
+                {
+                    Id = Guid.NewGuid(), ProductoId = p1.Id,
+                    UbicacionAlmacenId = location.Id, UbicacionCodigo = location.Codigo,
+                    CantidadTotal = 2, PuntoReorden = 1
+                };
+                db.StockFisico.Add(stock);
+                await db.SaveChangesAsync();
+                db.ChangeTracker.Clear();
+
+                var conteos = new ConteoCiclicoService(
+                    db,
+                    new AjusteInventarioService(
+                        db, Microsoft.Extensions.Logging.Abstractions.NullLogger<AjusteInventarioService>.Instance),
+                    Microsoft.Extensions.Logging.Abstractions.NullLogger<ConteoCiclicoService>.Instance);
+                var flags = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+                    .AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Barcodes:EnableHistoricalAliasLookup"] = "true"
+                    }).Build();
+                var service = new SesionConteoService(db, conteos, flags);
+                var opened = await service.AbrirRecorridoAsync(location.Pasillo, "admin-qa");
+                Assert.True(opened.Exitoso);
+
+                var lecturaId = Guid.NewGuid();
+                var result = await service.RegistrarLecturaAsync(
+                    opened.Sesion!.Id, lecturaId, historicalAlias, 2,
+                    stock.Id, "admin-qa");
+                Assert.Equal(ResultadoLectura.Coincide, result.Resultado);
+                var retry = await service.RegistrarLecturaAsync(
+                    opened.Sesion.Id, lecturaId, historicalAlias, 2,
+                    stock.Id, "admin-qa");
+                Assert.Equal(result.Resultado, retry.Resultado);
+                Assert.Equal(1, await db.LecturasConteo.CountAsync(l => l.Id == lecturaId));
+                var recorded = await db.LecturasConteo.SingleAsync(l => l.Id == lecturaId);
+                Assert.Equal(historicalAlias, recorded.CodigoLeido);
+                Assert.Equal(p1.Id, recorded.ProductoId);
+                Assert.Equal(actual,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+            }
         }
         finally
         {

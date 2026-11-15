@@ -1,6 +1,7 @@
 using MarketplaceERP.Catalog.Data;
 using MarketplaceERP.Catalog.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace MarketplaceERP.Catalog.Services;
 
@@ -15,10 +16,14 @@ internal sealed class SesionConteoService : ISesionConteoService
 
     private readonly CatalogDbContext _db;
     private readonly IConteoCiclicoService _conteos;
-    public SesionConteoService(CatalogDbContext db, IConteoCiclicoService conteos)
+    private readonly bool _permitirHistoricos;
+    public SesionConteoService(CatalogDbContext db, IConteoCiclicoService conteos,
+        IConfiguration? configuration = null)
     {
         _db = db;
         _conteos = conteos;
+        // Shared flag with read-only API; OFF until F451 migration and acceptance.
+        _permitirHistoricos = configuration?.GetValue<bool>("Barcodes:EnableHistoricalAliasLookup") ?? false;
     }
 
     // ── Apertura ─────────────────────────────────────────────────────────────
@@ -181,8 +186,11 @@ internal sealed class SesionConteoService : ISesionConteoService
         if (!CodigoBarras.EsEan13Valido(codigo))
             return Dto(ResultadoLectura.CodigoInvalido);
 
-        var coincidencias = await _db.Productos
-            .Where(p => p.CodigoEAN == codigo)
+        // F460: when explicitly enabled, a legacy label resolves to the
+        // same immutable product while CodigoLeido records the ORIGINAL scan.
+        // This endpoint is Admin-only at the HTTP boundary.
+        var coincidencias = await ConsultaCodigoEan.ProductosPorCodigo(
+                _db, codigo, _permitirHistoricos)
             .OrderBy(p => p.Id)
             .Take(2)
             .ToListAsync(ct);

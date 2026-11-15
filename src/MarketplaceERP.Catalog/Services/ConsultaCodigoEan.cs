@@ -17,14 +17,18 @@ public sealed record ResultadoConsultaCodigoEan(
 /// </summary>
 public static class ConsultaCodigoEan
 {
-    public static async Task<List<ResultadoConsultaCodigoEan>> BuscarAsync(
-        CatalogDbContext db, string codigo, Guid? vendedorId,
-        bool permitirHistoricos, CancellationToken ct = default)
+    /// <summary>
+    /// Reusable SQL identity resolver for read-only searches and ADMIN WMS scans.
+    /// OFF uses the old product field and requires no F451 tables.
+    /// ON only accepts immutable active/alias reservations: no fallback on mismatch.
+    /// </summary>
+    public static IQueryable<Producto> ProductosPorCodigo(
+        CatalogDbContext db, string codigo, bool permitirHistoricos)
     {
         if (!CodigoBarras.EsEan13Valido(codigo))
             throw new ArgumentException("Código EAN-13 inválido.", nameof(codigo));
 
-        IQueryable<Producto> consulta = permitirHistoricos
+        return permitirHistoricos
             ? db.Productos.FromSqlInterpolated($"""
                 SELECT p.*
                 FROM catalog.productos AS p
@@ -33,6 +37,17 @@ public static class ConsultaCodigoEan
                   AND r."Estado" IN ('Actual', 'Alias')
                 """)
             : db.Productos.Where(p => p.CodigoEAN == codigo);
+    }
+
+    public static async Task<List<ResultadoConsultaCodigoEan>> BuscarAsync(
+        CatalogDbContext db, string codigo, Guid? vendedorId,
+        bool permitirHistoricos, CancellationToken ct = default)
+    {
+        if (!CodigoBarras.EsEan13Valido(codigo))
+            throw new ArgumentException("Código EAN-13 inválido.", nameof(codigo));
+
+        IQueryable<Producto> consulta = ProductosPorCodigo(
+            db, codigo, permitirHistoricos);
 
         // En ambos modos el vendedor autenticado restringe los resultados
         // ANTES de materializar el producto: sin filtrado en memoria.

@@ -61,3 +61,10 @@
 - La respuesta incluye `CodigoLeido` y `EsAlias` para identificar el tipo de etiqueta sin cambiar `CodigoEAN` del producto. No registra lecturas WMS automáticamente.
 - F457 prueba consulta de código vigente y alias sintético del mismo producto, filtrado del vendedor propietario y ausencia para otro vendedor **solo en PostgreSQL efímero CI**.
 - **No habilitar el flag todavía:** F451 no se aplicó en Neon, aún no hay flujo transaccional de rotación, la captura WMS y el hardware siguen pendientes.
+
+## F460 — Escaneo WMS de alias (bandera OFF)
+
+- `SesionConteoService` reutiliza `ConsultaCodigoEan.ProductosPorCodigo` exclusivamente cuando `Barcodes:EnableHistoricalAliasLookup=true`; la ruta de conteos sigue restringida a Admin.
+- El código físico original escaneado se guarda en `LecturaConteo.CodigoLeido` y conserva la clave de idempotencia `LecturaId`; el producto actual no cambia EAN.
+- La prueba PostgreSQL desechable agrega un alias sintético a un producto con stock, registra una lectura de la etiqueta anterior y repite el mismo UUID; verifica una sola lectura, mismo ProductoId y EAN vigente intacto.
+- **No activar en Neon DEV/Production** hasta completar la migración F451/F454, autorizaciones y pruebas con hardware real. La prueba sintética no demuestra rotación transaccional ni seguridad de lectores físicos.
