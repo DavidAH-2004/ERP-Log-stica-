@@ -131,7 +131,10 @@ public class ArranqueSeguroU4Tests
         Assert.DoesNotContain("StartupInitializer", source);
         foreach (var forbidden in new[] { "MigrateAsync", "EnsureCreated", "SaveChanges", "SeedDemoData", "CrearAdminInicial" })
             Assert.DoesNotContain(forbidden, source);
-        Assert.Contains("builder.Services.AddMarketplaceSecurity(jwtSettings);", source);
+        // F360: retain registration and require an explicit configuration gate;
+        // the historical one-argument signature no longer matches the API.
+        Assert.Contains("builder.Services.AddMarketplaceSecurity(jwtSettings,", source);
+        Assert.Contains("builder.Configuration.GetValue<bool>(\"Auth:EnableSessionVersionCheck\")", source);
         Assert.Contains("app.UseAuthentication();", source);
         Assert.Contains("app.UseAuthorization();", source);
         // Source contract only; it is not a runtime HTTP or database test.
