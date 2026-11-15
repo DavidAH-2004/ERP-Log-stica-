@@ -171,3 +171,27 @@ En F419 el importador PostgreSQL ya abortaba el lote completo al detectar un EAN
 - **PR/release:** este diff **no es solo barcode**; incluye autenticación, BFF, throttling, migrations Core y Catalog. Requiere revisión/aprobación independiente del conjunto, plan de secuencia de migraciones/flags/rollback y los **7 pendientes de #65**. Ninguna aprobación de merge ni autorización de Render/Neon/Vercel Production queda implícita; `main` se mantiene protegido, PR sigue DRAFT.
 
 **Conclusión F423:** alcance de archivos y riesgos de permisos/migración identificados, con pruebas automatizadas y Desarrollo verdes; **no se declara F398, F400 ni promoción completa**.
+
+## F425 — aceptación real Admin en Preview protegida (15-nov-2026)
+
+**Evidencia de ejecución proporcionada por el operador desde su propio equipo Windows**, con el script `F425_ADMIN_PREVIEW_VISUAL_RUN.ps1`, usando contraseña Admin ingresada **oculta y localmente**. La cuenta utilizada corresponde a STAGING/QA y esta ejecución **no revela credenciales, JWT ni datos privados**.
+
+Resultado observado en la salida original:
+
+| Comprobación | Evidencia | Resultado |
+|---|---|---|
+| Autenticación Admin | `F288_LOGIN_ROLE=Admin_UI=PASS` | **PASS** |
+| Rutas Admin | `/dashboard`, `/ordenes`, `/compras`, `/contabilidad` | **PASS**, visibles |
+| Productos / etiquetas | `/productos`, `/productos/etiquetas?todos=1` | **PASS**, visibles |
+| UI de escáner de conteos | `/conteos/escaner` | **PASS**, visible |
+| Acceso API autenticado de códigos y sesiones | `F425_ADMIN_BARCODE_AND_COUNTS_PREVIEW_GET=200_200` | **PASS**, dos GET 200 |
+| Restricción de roles de UI | `F290_ADMIN_CHECKOUT_COMPRADOR_BLOQUEADO=PASS` | **PASS** |
+| Ausencia de operaciones de negocio | `F290_ADMIN_QA_WRITES=0` | **PASS**, sin escrituras |
+| Resultado final | `F290_ADMIN_GATED_VISUAL=PASS` | **PASS** |
+| Limpieza de metadatos | `F288_CLI_METADATA_CLEANED=OK` | **PASS** |
+
+**Conclusión precisa:** la aceptación de **autenticación y visualización Admin real en Vercel Preview** está **COMPLETA** y no necesita repetirse. La evidencia confirma consultas de solo lectura; **no significa** que se haya iniciado, registrado o cerrado una sesión de conteo con cambios reales, ni que el lector USB, la impresora Avery o la cámara físicos hayan sido probados. Tampoco equivale a aprobar todos los módulos de PR #68 para Producción.
+
+**Criterios aún abiertos:** F398 con hardware real, aceptación expresa de la política de inmutabilidad/rotación/alias de EAN (o exclusión acordada), revisión formal y puertas del release maestro #65 antes de `main`. PR #68 continúa en DRAFT y no se autoriza merge ni migración productiva a partir de este PASS. Mantener #70 **4/7** hasta completar sus condiciones integrales.
+
+La Preview donde se ejecutó F425 fue el despliegue protegido `dpl_9VVqscPZRXHbxTPP4Dyp8ASBB8QH` (commit de aplicación `636c8d1`); los commits siguientes hasta `377b18b` solo modificaron el script de QA, no el código de la web ni API. La ejecución fue realizada por el operador, no por CI ni por la automatización.
