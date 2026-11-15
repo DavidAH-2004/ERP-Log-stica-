@@ -62,3 +62,15 @@ No marcar F398 como completo porque un dispositivo aparece enumerado en Windows:
 - [x] Mantener pagos reales del issue #69 en modo Disabled; no se han ejecutado cobros.
 
 **Decisión de liberación actual: NO-GO a Producción.** El resultado automatizado respalda `development`; la prueba física y recuperación productiva siguen abiertas.
+
+
+## F412–F414 — Aislamiento y listado de etiquetas desplegado (15-nov-2026)
+
+- [CI #43700941751](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43700941751): **4/4 SUCCESS**, F412 comprobó que seleccionar un ID ajeno no devuelve etiquetas al Vendedor, mientras Admin sí ve la etiqueta; Comprador recibe 403 y UUID inválido 400, todo sobre PostgreSQL desechable.
+- [CI #43701322502](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43701322502): **4/4 SUCCESS**, F413 confirmó que un Vendedor propietario puede seleccionar su propia etiqueta y resolver su EAN por la API, mientras los productos del otro propietario quedan ocultos.
+- [CI #43701999752](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43701999752): **4/4 SUCCESS**, F414 corrigió `ConsultaEtiquetas.ObtenerAsync`. El predicado EF `CodigoEAN != ""` incluía NULL por compensación de nulos. Se cambió a `CodigoEAN != null && CodigoEAN != ""`; la selección explícita por `ids` conserva la opción de informar que un producto no tiene código.
+- [Render DEV deploy `dep-dbso87u1egvs73edi34g`](https://dashboard.render.com/web/srv-dbmnd6jrjlhs73c0jung/deploys/dep-dbso87u1egvs73edi34g) **LIVE** en `development@7dbd0d2`; última Preview Vercel `dpl_AEQznaqX2VXZsgv22LrzCwMnYWuT` READY en el mismo SHA. Health/ready GET 200 y endpoint de etiquetas sin sesión GET 401.
+- El ensayo positivo **real** `F412_BARCODE_LIVE_POSITIVE_READONLY.ps1` corrió con la cuenta Vendedor QA en la Preview protegida y Render DEV; 0 escrituras. La API anterior devolvía **488 productos publicados, solo 47 con EAN válido**. Después de F414 devolvió **47 registros y los 47 con EAN válido**, todos publicables como etiquetas. Búsqueda por EAN de producto propio en Preview y Render devolvió 200 con **ID, SKU y EAN idénticos**, y código válido inexistente devolvió 404.
+- Los EAN históricos en Neon DEV siguen inalterados: 500 productos, 451 sin EAN, 49 EAN-13 válidos (47 publicados), 0 EAN duplicados y huella original conservada. No se modificó Neon PROD/DEV mediante las pruebas de lectura, no se generaron pagos, y Render PROD/`main` permanecen intactos.
+
+**Pendientes de aceptación final:** Admin real en Preview, validación con cámara/lector USB-Bluetooth/impresora físicos y aceptación explícita del comportamiento de cambio/regeneración de EAN existentes. No declarar F398/F400 ni el gate #65 completos por pruebas sintéticas o verificaciones solo de Vendedor.
