@@ -193,9 +193,20 @@ export async function bffCookieProxy(request, upstreamOrigin, fetchImpl = fetch)
 
   if (logout) {
     if (method !== 'POST') return json({ mensaje: 'Método no permitido.' }, 405);
-    const headers = new Headers({ 'Cache-Control': 'no-store' });
-    clearCookies(headers);
-    return new Response(null, { status: 204, headers });
+    try {
+      // F360: HttpOnly cookie deletion is NOT JWT revocation.
+      // The API must commit the generation increment before we acknowledge it.
+      const upstream = await upstreamFetch(target(url, upstreamOrigin), request, token, fetchImpl);
+      if (upstream.status !== 204) {
+        return json({ mensaje: 'No fue posible confirmar la revocación.' },
+          upstream.status === 401 ? 401 : 503);
+      }
+      const headers = new Headers({ 'Cache-Control': 'no-store' });
+      clearCookies(headers);
+      return new Response(null, { status: 204, headers });
+    } catch {
+      return json({ mensaje: 'No fue posible confirmar la revocación.' }, 503);
+    }
   }
 
   try {
