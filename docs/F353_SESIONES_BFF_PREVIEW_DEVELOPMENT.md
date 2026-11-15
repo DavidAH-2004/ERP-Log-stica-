@@ -36,6 +36,20 @@ El backend y el proxy F353 se complementan ahora con un cliente React experiment
 - `tests/MarketplaceERP.Finance.Tests/AuthCookieSessionControllerTests.cs`: pruebas de la acción de sesión con `CoreDbContext` InMemory (sin datos externos) para usuario activo y rol válido, frente a usuario inactivo, JWT expirado, identidad ausente, cambio de rol y rol desconocido.
 - Estas comprobaciones **no certifican** la combinación real Vercel Preview → Render Desarrollo → Neon Desarrollo, ni revocación JWT en todas las instancias. El merge sigue sujeto a revisión del CI final, y la activación sigue bloqueada.
 
+## F360 — Revocación persistente de sesión (código en Desarrollo, NO desplegado)
+
+- `core.usuarios.VersionSesion` (nuevo entero no negativo, valor inicial 0) y migración EF `20261115032000_AgregarVersionSesionJWT`. No ejecutar esta migración en producción ni en Neon Desarrollo sin preflight y backup/rehearsal.
+- JWT de login añade claim firmado `sv` con la generación vigente de la cuenta. La verificación `OnTokenValidated` consulta PostgreSQL compartido en cada request y exige que `sv`, estado activo y rol coincidan **solo cuando** `Auth:EnableSessionVersionCheck=true`. En el comportamiento por defecto la opción está **OFF**.
+- `POST /api/auth/logout`: exige rol explícito Admin/Vendedor/Comprador y solo responde 204 después de un incremento **atómico** de generación en PostgreSQL. Invalida así todas las sesiones anteriores de esa cuenta, incluso en otras instancias. Si la función está desactivada o la BD no confirma el cambio, responde 503/401; nunca simula éxito.
+- El BFF ya no borra cookies por logout si el servidor no confirma 204. La prueba negativa exige 503 sin `Set-Cookie` de borrado; el simulador Chromium comprueba revocación.
+- `JwtSessionGenerationTests` usa **exclusivamente** PostgreSQL efímero `postgres@localhost:5432/postgres` dentro de GitHub CI para verificar versión 0→1, 204 inicial, rechazo de segundo logout y login posterior con nueva versión. **La compilación local no verifica la prueba PostgreSQL de CI; esperar evidencia del run final**.
+
+**Puertas de operación F360:**
+1. No desplegar la versión F360 en Render Desarrollo hasta tener migración aplicada sobre Neon Development 39→39 tablas, con huellas/respaldo y migraciones EF verificadas. Aunque el flag esté OFF, la columna nueva forma parte del modelo EF de login.
+2. No activar `Auth:EnableSessionVersionCheck` hasta que *todas* las instancias usen el mismo esquema y el nuevo JWT; los tokens previos sin `sv` serán rechazados al activarlo. Esto exige coordinación de usuarios, recuperación y rollback probado.
+3. El esquema de versión invalida **todas** las sesiones de una cuenta, no solo el dispositivo actual. Es una propiedad intencionada de la primera fase de revocación. Rotación automática de refresh tokens por dispositivo y revocación selectiva quedan **pendientes**.
+4. Cada request autenticado en modo estricto agrega lectura a PostgreSQL; comprobar latencia, límite de conexiones, fallos y resiliencia distribuida antes de Production. No añadir caché permisiva que acepte tokens revocados.
+
 ## Límites de seguridad y por qué no está habilitado
 
 1. **Frontend experimental, NO validado end-to-end:** F354 añade un modo cookie opt-in a `AuthContext`, `api/client.ts` y `LoginPage`, pero el comportamiento por defecto continúa siendo Bearer/localStorage. Las pruebas Chromium heredadas **todavía dependen** de `erp_token`; falta una matriz E2E en navegador con **ambos flags** compilados y configurados, para roles Admin/Vendedor/Comprador, reinicios, logout y datos reales sintéticos. **No activar aún en Vercel.**
