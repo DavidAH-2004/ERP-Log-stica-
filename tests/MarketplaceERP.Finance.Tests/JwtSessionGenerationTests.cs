@@ -1,14 +1,18 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using MarketplaceERP.API.Controllers;
+using MarketplaceERP.API.Security;
 using MarketplaceERP.Core.Data;
 using MarketplaceERP.Core.Entities;
 using MarketplaceERP.Shared.Settings;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -43,6 +47,42 @@ public sealed class JwtSessionGenerationTests
     private static string TokenVersion(string jwt) =>
         new JwtSecurityTokenHandler().ReadJwtToken(jwt)
             .Claims.Single(c => c.Type == "sv").Value;
+
+    // F366: Execute the REAL JWT authentication/authorization middleware against
+    // an isolated PostgreSQL database, not a mocked claims principal.
+    private static async Task<int> ProbeStrictBearerAsync(string connection, string jwt)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<CoreDbContext>(o => o.UseNpgsql(connection,
+            n => n.MigrationsHistoryTable("__EFMigrationsHistory", "core")));
+        services.AddMarketplaceSecurity(new JwtSettings
+        {
+            Key = "F360-LOCAL-TEST-KEY-NOT-FOR-PRODUCTION-00000000000",
+            Issuer = "f360.invalid",
+            Audience = "f360-client.invalid",
+            ExpirationMinutes = 30
+        }, enableSessionVersionCheck: true);
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var http = new DefaultHttpContext { RequestServices = scope.ServiceProvider };
+        http.Request.Headers.Authorization = "Bearer " + jwt;
+        http.Response.Body = new MemoryStream();
+        http.SetEndpoint(new Endpoint(_ => Task.CompletedTask,
+            new EndpointMetadataCollection(new AuthorizeAttribute { Roles = "Admin" }),
+            "f366-strict-revocation"));
+        var app = new ApplicationBuilder(provider);
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.Run(context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            return Task.CompletedTask;
+        });
+        await app.Build()(http);
+        return http.Response.StatusCode;
+    }
+
 
     [Fact]
     public async Task LogoutWithFeatureFlagOff_Reports503NotFalseSuccess()
@@ -113,6 +153,8 @@ public sealed class JwtSessionGenerationTests
                     CancellationToken.None));
                 var bearer = Assert.IsType<LoginResponse>(first.Value).Token;
                 Assert.Equal("0", TokenVersion(bearer));
+                // The pre-logout JWT is accepted by actual strict middleware.
+                Assert.Equal(200, await ProbeStrictBearerAsync(local, bearer));
 
                 controller.ControllerContext = new ControllerContext
                 {
@@ -130,6 +172,9 @@ public sealed class JwtSessionGenerationTests
                     await controller.Logout(CancellationToken.None));
                 Assert.IsType<UnauthorizedObjectResult>(
                     await controller.Logout(CancellationToken.None));
+                // After a shared PostgreSQL generation update, the old signed
+                // JWT MUST be rejected by the same ASP.NET auth middleware.
+                Assert.Equal(401, await ProbeStrictBearerAsync(local, bearer));
             }
 
             await using (var db = new CoreDbContext(new DbContextOptionsBuilder<CoreDbContext>()
@@ -141,8 +186,19 @@ public sealed class JwtSessionGenerationTests
                     await Controller(db, enabled: true).Login(
                         new LoginRequest(user.Email, "f360-disposable-password"),
                         CancellationToken.None));
-                Assert.Equal("1", TokenVersion(
-                    Assert.IsType<LoginResponse>(nextLogin.Value).Token));
+                var nextBearer = Assert.IsType<LoginResponse>(nextLogin.Value).Token;
+                Assert.Equal("1", TokenVersion(nextBearer));
+                Assert.Equal(200, await ProbeStrictBearerAsync(local, nextBearer));
+
+                // Revocation must also work if the account role changes or is
+                // deactivated, independently of the signed JWT's expiry.
+                user.Rol = "Vendedor";
+                await db.SaveChangesAsync();
+                Assert.Equal(401, await ProbeStrictBearerAsync(local, nextBearer));
+                user.Rol = "Admin";
+                user.Activo = false;
+                await db.SaveChangesAsync();
+                Assert.Equal(401, await ProbeStrictBearerAsync(local, nextBearer));
             }
         }
         finally
