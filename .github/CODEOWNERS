@@ -1,0 +1,10 @@
+# MarketplaceERP — responsables de revisiones de código
+# GitHub repository owner (keep in sync with repository administration).
+# This file documents ownership; enforcement requires an explicit branch protection rule.
+
+* @Marzza01
+/.github/ @Marzza01
+/src/ @Marzza01
+/frontend/ @Marzza01
+/scripts/ @Marzza01
+/docs/ @Marzza01
