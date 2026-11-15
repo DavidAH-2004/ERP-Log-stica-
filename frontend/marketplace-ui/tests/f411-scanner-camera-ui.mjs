@@ -1,5 +1,5 @@
 /**
- * F411: keyboard-wedge (USB simulation) and denied camera in actual React UI.
+ * F411/F422: keyboard-wedge, denied camera and optical video-canvas camera in React UI.
  * All requests are intercepted on local Vite. No hardware or persistent DB.
  */
 import assert from 'node:assert/strict';
@@ -149,6 +149,76 @@ try{
   assert.equal(state.external,0);
   await ctx.close();
 
+  // F422: exercitar la ruta REAL de @zxing/browser a través de
+  // getUserMedia -> video -> canvas -> ZXing -> React -> lookup.
+  // La "cámara" es una pista virtual hecha con canvas; no se enciende
+  // ninguna cámara conectada ni se visita la API cloud.
+  const cameraCtx=await browser.newContext({permissions:[]});
+  await cameraCtx.addInitScript(()=>{
+    const left=[
+      '0001101','0011001','0010011','0111101','0100011',
+      '0110001','0101111','0111011','0110111','0001011'
+    ];
+    const middle=[
+      '0100111','0110011','0011011','0100001','0011101',
+      '0111001','0000101','0010001','0001001','0010111'
+    ];
+    const right=[
+      '1110010','1100110','1101100','1000010','1011100',
+      '1001110','1010000','1000100','1001000','1110100'
+    ];
+    const parity=['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG',
+      'LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+    const code='4006381333931';
+    let bits='101';
+    for(let n=1;n<=6;n++){
+      const digit=Number(code[n]);
+      bits+=parity[Number(code[0])][n-1]==='L'?left[digit]:middle[digit];
+    }
+    bits+='01010';
+    for(let n=7;n<=12;n++)bits+=right[Number(code[n])];
+    bits+='101';
+    if(bits.length!==95)throw Error('F422 synthetic EAN width');
+
+    Object.defineProperty(navigator,'mediaDevices',{
+      configurable:true,
+      value:{
+        getUserMedia:async()=>{
+          const canvas=document.createElement('canvas');
+          canvas.width=1280;
+          canvas.height=720;
+          const ctx=canvas.getContext('2d',{alpha:false});
+          const render=()=>{
+            ctx.fillStyle='#fff';
+            ctx.fillRect(0,0,1280,720);
+            const x0=Math.floor((1280-95*7)/2);
+            ctx.fillStyle='#000';
+            for(let n=0;n<bits.length;n++){
+              if(bits[n]==='1')ctx.fillRect(x0+n*7,165,7,380);
+            }
+          };
+          render();
+          const stream=canvas.captureStream(12);
+          // Mantiene fotogramas disponibles para el decodificador.
+          const timer=setInterval(render,100);
+          stream.getVideoTracks()[0]?.addEventListener('ended',()=>clearInterval(timer));
+          return stream;
+        },
+        enumerateDevices:async()=>[{deviceId:'f422-virtual',kind:'videoinput',
+          label:'F422 synthetic canvas stream',groupId:'f422'}]
+      }
+    });
+  });
+  const cameraPage=await cameraCtx.newPage(),cameraState=await mockApi(cameraPage);
+  await login(cameraPage,'admin-camera-f422@example.invalid');
+  await cameraPage.goto(origin+'/conteos/escaner/'+sessionId);
+  await cameraPage.getByRole('textbox',{name:'Código de barras'}).waitFor({timeout:15000});
+  await cameraPage.getByRole('button',{name:'Escanear con cámara'}).click();
+  await cameraPage.getByText('¿Cuántas unidades hay?').waitFor({timeout:20000});
+  assert.equal(cameraState.posts.length,0,'Camera must not post inventory before quantity');
+  assert.equal(cameraState.external,0,'Camera fixture cannot contact remote API');
+  await cameraCtx.close();
+
   const buyer=await browser.newPage();
   await mockApi(buyer);
   await login(buyer,'buyer-f411@example.invalid');
@@ -160,7 +230,7 @@ try{
     syntheticUsbKeyboard:'13 digits + Enter',invalidLocalRejection:true,
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,buyerDenied:true,remoteApiCalls:0,
-    cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
+    cameraSyntheticDecode:true,cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
   }));
 }finally{
   if(browser)await browser.close();

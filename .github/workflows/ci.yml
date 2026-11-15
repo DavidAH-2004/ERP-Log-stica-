@@ -331,7 +331,7 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: node tests/f406-optical-roundtrip.mjs
 
-      - name: F411 keyboard-wedge scanner and denied camera (local Chromium)
+      - name: F411/F422 scanner keyboard and synthetic camera decode (local Chromium)
         working-directory: frontend/marketplace-ui
         run: node tests/f411-scanner-camera-ui.mjs
 
