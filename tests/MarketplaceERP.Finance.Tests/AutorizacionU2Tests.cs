@@ -185,6 +185,7 @@ public class AutorizacionU2Tests
         {
             actions++;
             var publicLogin = controller == typeof(AuthController) && action.Name == nameof(AuthController.Login);
+            var sessionRead = controller == typeof(AuthController) && action.Name == nameof(AuthController.Session);
             // Checkout V1, cotización QA aislada y checkout comercial multi-SKU
             // conservan la matriz exclusiva de Comprador. La simulación QA sigue
             // restringida al sandbox; Admin y Vendedor no pueden ejecutar cobros.
@@ -224,8 +225,12 @@ public class AutorizacionU2Tests
                 action.Name == nameof(ProductosController.GetAlertasStock) ||
                 action.Name == nameof(ProductosController.GetCatalogoB2B));
 
-            var allowsSeller = publicLogin || isProductCatalogRead || isProductSellerOp || sellerOwnOrders;
-            var allowsBuyer = publicLogin || buyerCheckout || buyerTracking || buyerOrder || isProductCatalogRead;
+            // F353: sesión GET es read-only y válida para los tres roles.
+            // El endpoint comprueba que la cuenta siga activa y su rol no haya cambiado.
+            if (sessionRead)
+                Assert.Equal("Admin,Vendedor,Comprador", action.GetCustomAttribute<AuthorizeAttribute>()?.Roles);
+            var allowsSeller = publicLogin || sessionRead || isProductCatalogRead || isProductSellerOp || sellerOwnOrders;
+            var allowsBuyer = publicLogin || sessionRead || buyerCheckout || buyerTracking || buyerOrder || isProductCatalogRead;
 
             var metadata = controller.GetCustomAttributes(inherit: true).Concat(action.GetCustomAttributes(inherit: true)).ToArray();
             Assert.Equal(publicLogin, metadata.OfType<IAllowAnonymous>().Any());
@@ -253,8 +258,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // Ninguna autorización queda implícita.
         Assert.Equal(27, controllers.Length);
-        Assert.Equal(93, actions);
-        Assert.Equal(94, routes); // Productos/GetAlertasStock tiene dos alias.
+        Assert.Equal(94, actions); // F353 agrega GET api/auth/session autorizado.
+        Assert.Equal(95, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]
