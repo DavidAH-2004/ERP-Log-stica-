@@ -153,8 +153,13 @@ public sealed class EvaluadorConciliacionPago
         {
             case EstadoCobroProveedor.Confirmado:
             {
-                var transaccion = resultado.TransaccionId?.Trim();
-                if (string.IsNullOrWhiteSpace(transaccion) || transaccion.Length > 200)
+                // F448: never silently normalize a bank transaction identifier.
+                // A different ID after trimming can conceal a provider mismatch;
+                // control characters can also poison audit/export records.
+                var transaccion = resultado.TransaccionId;
+                if (string.IsNullOrWhiteSpace(transaccion) || transaccion.Length > 200 ||
+                    !string.Equals(transaccion, transaccion.Trim(), StringComparison.Ordinal) ||
+                    transaccion.Any(char.IsControl))
                     return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                         "El proveedor confirmo un cargo sin identificador de transaccion valido.");
 
