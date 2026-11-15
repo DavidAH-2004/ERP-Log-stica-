@@ -462,6 +462,22 @@ jobs:
       - name: F315 Vercel policy offline guard (11 scenarios, no network)
         shell: powershell
         run: .\\scripts\\f315-vercel-policy-contract-tests.ps1
+      - name: F424 Admin Preview QA helper parse (offline)
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $script='./scripts/f424-preview-admin-readonly.ps1'
+          if(!(Test-Path -LiteralPath $script)){throw 'F424 script absent'}
+          $tokens=$null
+          $parseErrors=$null
+          [Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors)|Out-Null
+          if($parseErrors.Count){throw 'F424 script parse errors'}
+          $content=Get-Content -LiteralPath $script -Raw
+          if($content -notmatch 'Read-Host.*-AsSecureString' -or
+              $content -notmatch 'F424_BUSINESS_WRITES=0' -or
+              $content -notmatch 'marketplaceerp-api-staging.onrender.com'){
+            throw 'F424 script safety contract changed'
+          }
       - name: Compare two disposable worktrees with absent files
         shell: powershell
         run: |
