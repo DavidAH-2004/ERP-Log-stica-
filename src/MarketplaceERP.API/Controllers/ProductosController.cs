@@ -301,6 +301,7 @@ public class ProductosController : ControllerBase
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(ImportResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ImportarCsv(IFormFile archivo)
     {
         if (archivo is null || archivo.Length == 0)
@@ -311,9 +312,16 @@ public class ProductosController : ControllerBase
         var defaultCategoriaId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
         using var stream = archivo.OpenReadStream();
-        var resultado = await _importService.ImportarCatalogoCsvAsync(stream, defaultVendedorId, defaultCategoriaId);
-
-        return Ok(resultado);
+        try
+        {
+            var resultado = await _importService.ImportarCatalogoCsvAsync(
+                stream, defaultVendedorId, defaultCategoriaId);
+            return Ok(resultado);
+        }
+        catch (CodigoEanDuplicadoException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>
@@ -346,8 +354,16 @@ public class ProductosController : ControllerBase
             return NotFound(new { mensaje = "No se encontró el archivo Catalogo_500_Productos.csv en el servidor." });
         }
 
-        var resultado = await _importService.ImportarCatalogoDesdeArchivoAsync(rutaEncontrada, defaultVendedorId, defaultCategoriaId);
-        return Ok(resultado);
+        try
+        {
+            var resultado = await _importService.ImportarCatalogoDesdeArchivoAsync(
+                rutaEncontrada, defaultVendedorId, defaultCategoriaId);
+            return Ok(resultado);
+        }
+        catch (CodigoEanDuplicadoException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>

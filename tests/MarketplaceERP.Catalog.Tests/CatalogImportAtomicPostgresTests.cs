@@ -353,7 +353,7 @@ public sealed class CatalogImportAtomicPostgresTests : IAsyncLifetime
             using var csv = FileOf(
                 WithEan(Row("F419-FIRST", "25.00", "20"), "4006381333931"),
                 WithEan(Row("F419-DUP", "25.00", "20"), "4006381333931"));
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<CodigoEanDuplicadoException>(() =>
                 service.ImportarCatalogoCsvAsync(csv, Guid.NewGuid(), Guid.NewGuid()));
         }
 
@@ -384,7 +384,7 @@ public sealed class CatalogImportAtomicPostgresTests : IAsyncLifetime
         {
             var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
             using var csv = FileOf(WithEan(Row("F419-NEW", "25.00", "999")));
-            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            await Assert.ThrowsAsync<CodigoEanDuplicadoException>(() =>
                 service.ImportarCatalogoCsvAsync(csv, Guid.NewGuid(), Guid.NewGuid()));
         }
 

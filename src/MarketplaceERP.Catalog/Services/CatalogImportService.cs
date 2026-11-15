@@ -102,6 +102,16 @@ public class CatalogImportService : ICatalogImportService
                 await transaccion.CommitAsync(cancellationToken);
                 return resultado;
             }
+            catch (DbUpdateException ex) when (
+                ex.InnerException is Npgsql.PostgresException pg &&
+                pg.SqlState == "23505" &&
+                pg.ConstraintName == "UX_productos_CodigoEAN_no_vacio")
+            {
+                // La base de datos detectó una carrera entre instancias
+                // mientras se confirmaba el lote. Sin escrituras parciales.
+                _dbContext.ChangeTracker.Clear();
+                throw new CodigoEanDuplicadoException();
+            }
             catch
             {
                 // Al salir sin Commit, PostgreSQL revierte todo el lote.
@@ -319,8 +329,7 @@ public class CatalogImportService : ICatalogImportService
                         (!nuevosEansEnLote.Add(eanValido) ||
                          await _dbContext.Productos.AsNoTracking()
                              .AnyAsync(p => p.CodigoEAN == eanValido, cancellationToken)))
-                        throw new InvalidOperationException(
-                            $"F419: EAN duplicado al crear SKU {sku}; revisión manual necesaria.");
+                        throw new CodigoEanDuplicadoException(sku);
 
                     producto = new Producto
                     {
@@ -419,6 +428,11 @@ public class CatalogImportService : ICatalogImportService
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                throw;
+            }
+            catch (CodigoEanDuplicadoException)
+            {
+                // F420: no convertir un error de negocio reproducible en 500.
                 throw;
             }
             catch (Exception ex)
