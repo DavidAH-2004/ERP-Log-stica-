@@ -604,6 +604,17 @@ public class ProductosController : ControllerBase
                 return Forbid();
         }
 
+        // F427: never silently accept an attempted EAN rotation via the
+        // general product edit. A historical label remains bound to its
+        // original product until the separately audited alias design (#71).
+        // Omission or an identical existing EAN are harmless no-ops.
+        if (request.CodigoEAN is not null &&
+            !string.Equals(request.CodigoEAN, producto.CodigoEAN ?? string.Empty,
+                StringComparison.Ordinal))
+            return Conflict(new { mensaje =
+                "No se puede cambiar ni borrar el EAN desde la edición general. " +
+                "La rotación requiere un proceso Admin auditado independiente." });
+
         producto.Sku = request.Sku;
         producto.Nombre = request.Nombre;
         producto.Descripcion = request.Descripcion;
@@ -734,4 +745,7 @@ public record ActualizarProductoRequest(
     string DimensionesCm,
     string UnidadMedida,
     string EstadoProducto,
-    bool EstaPublicado);
+    bool EstaPublicado,
+    // F427: presence of this optional field lets us reject a requested
+    // change instead of quietly ignoring a client-supplied CodigoEAN.
+    string? CodigoEAN = null);

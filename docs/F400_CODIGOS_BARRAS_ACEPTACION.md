@@ -195,3 +195,11 @@ Resultado observado en la salida original:
 **Criterios aún abiertos:** F398 con hardware real, aceptación expresa de la política de inmutabilidad/rotación/alias de EAN (o exclusión acordada), revisión formal y puertas del release maestro #65 antes de `main`. PR #68 continúa en DRAFT y no se autoriza merge ni migración productiva a partir de este PASS. Mantener #70 **4/7** hasta completar sus condiciones integrales.
 
 La Preview donde se ejecutó F425 fue el despliegue protegido `dpl_9VVqscPZRXHbxTPP4Dyp8ASBB8QH` (commit de aplicación `636c8d1`); los commits siguientes hasta `377b18b` solo modificaron el script de QA, no el código de la web ni API. La ejecución fue realizada por el operador, no por CI ni por la automatización.
+
+## F427 — cierre preventivo de ediciones EAN por PUT (15-nov-2026)
+
+**Control de seguridad añadido a `development`:** `PUT /api/productos/{id}` acepta el dato `codigoEAN` únicamente como comprobación de compatibilidad, **sin cambiar el EAN**. Si el cliente envía un código distinto o intenta vaciar el existente, responde **HTTP 409** y no modifica datos maestros. Omitir `codigoEAN` o enviar exactamente el valor histórico existente conserva el comportamiento anterior de edición. Esta decisión no cambia el endpoint Admin dedicado para asignar EAN únicamente a productos sin código.
+
+La medida evita que una aplicación cliente interprete erróneamente un PUT 200 como aprobación de rotación cuando el backend estaba ignorando el campo en silencio. Se añadieron pruebas unitarias con EF InMemory para Admin/Vendedor, con y sin `codigoEAN` y solicitando reemplazo o borrado. El EAN histórico debe permanecer vinculado al producto original. La migración de aliases y auditoría de rotación está separada en [issue #71](https://github.com/Marzza01/ERP-Log-stica-/issues/71); **no es funcionalidad implementada aquí**.
+
+**Puerta F400 pendiente de aceptación expresa:** el equipo debe aceptar formalmente que la capacidad de *cambiar/regenerar* EAN históricos del fork se entrega aparte bajo #71. No declarar probado hardware ni autorizar `main`/Production por este cambio.

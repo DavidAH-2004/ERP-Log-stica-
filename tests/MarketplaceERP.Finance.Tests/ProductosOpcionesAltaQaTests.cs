@@ -232,6 +232,82 @@ public sealed class ProductosOpcionesAltaQaTests
         Assert.Equal(0, await catalog.StockFisico.CountAsync());
     }
 
+    [Theory]
+    [InlineData("5901234123457")]
+    [InlineData("")]
+    [InlineData("2000000000015")]
+    public async Task F427_Update_RechazaRotacionYBorradoEanHistorico_Como409SinEscribir(
+        string eanSolicitado)
+    {
+        var (catalog, core, vendedor, _, _) = CrearContexts();
+        await using var cat = catalog;
+        await using var coreContext = core;
+        var producto = new MarketplaceERP.Catalog.Entities.Producto
+        {
+            Id = Guid.NewGuid(), Sku = "F427-ORIGINAL",
+            Nombre = "Producto histórico", CategoriaNombre = "Tecnología",
+            CategoriaId = Guid.NewGuid(), VendedorId = vendedor,
+            CodigoEAN = "4006381333931", PrecioB2C = 20m,
+            PrecioB2B = 15m, EstadoProducto = "Activo"
+        };
+        catalog.Productos.Add(producto);
+        await catalog.SaveChangesAsync();
+        catalog.ChangeTracker.Clear();
+
+        foreach (var role in new[] { "Admin", "Vendedor" })
+        {
+            var controller = Controller(catalog, role,
+                role == "Vendedor" ? vendedor.ToString() : null);
+            var cambio = F427Peticion(eanSolicitado);
+            Assert.IsType<ConflictObjectResult>(
+                await controller.Update(producto.Id, cambio));
+            catalog.ChangeTracker.Clear();
+            var persistido = await catalog.Productos.AsNoTracking()
+                .SingleAsync(p => p.Id == producto.Id);
+            Assert.Equal("4006381333931", persistido.CodigoEAN);
+            Assert.Equal("F427-ORIGINAL", persistido.Sku);
+            Assert.Equal(20m, persistido.PrecioB2C);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("4006381333931")]
+    public async Task F427_Update_AdmiteEanOmitidoOIdentico_SinRotarlo(
+        string? eanSolicitado)
+    {
+        var (catalog, core, vendedor, _, _) = CrearContexts();
+        await using var cat = catalog;
+        await using var coreContext = core;
+        var producto = new MarketplaceERP.Catalog.Entities.Producto
+        {
+            Id = Guid.NewGuid(), Sku = "F427-ORIGINAL",
+            Nombre = "Producto histórico", CategoriaNombre = "Tecnología",
+            CategoriaId = Guid.NewGuid(), VendedorId = vendedor,
+            CodigoEAN = "4006381333931", PrecioB2C = 20m,
+            PrecioB2B = 15m, EstadoProducto = "Activo"
+        };
+        catalog.Productos.Add(producto);
+        await catalog.SaveChangesAsync();
+        catalog.ChangeTracker.Clear();
+        var api = Controller(catalog, "Admin", null);
+        Assert.IsType<OkObjectResult>(
+            await api.Update(producto.Id, F427Peticion(eanSolicitado)));
+        catalog.ChangeTracker.Clear();
+        var guardado = await catalog.Productos.AsNoTracking()
+            .SingleAsync(p => p.Id == producto.Id);
+        Assert.Equal("4006381333931", guardado.CodigoEAN);
+        Assert.Equal("F427-ORIGINAL", guardado.Sku);
+        Assert.Equal(99m, guardado.PrecioB2C);
+    }
+
+    private static ActualizarProductoRequest F427Peticion(string? ean) =>
+        new(
+            "F427-ORIGINAL", "Producto editado", "Descripción QA",
+            "Tecnología", "General", 99m, 80m, 3,
+            "Proveedor QA", "El Salvador", 1m, "10x10x10",
+            "Unidad", "Activo", true, ean);
+
     private static ProductosController Controller(CatalogDbContext catalog,
         string role, string? claimId, CoreDbContext? core = null)
     {
