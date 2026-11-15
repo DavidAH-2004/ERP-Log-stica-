@@ -230,7 +230,12 @@ public class AutorizacionU2Tests
             // El endpoint comprueba que la cuenta siga activa y su rol no haya cambiado.
             if (sessionRead || sessionLogout)
                 Assert.Equal("Admin,Vendedor,Comprador", action.GetCustomAttribute<AuthorizeAttribute>()?.Roles);
-            var allowsSeller = publicLogin || sessionRead || sessionLogout || isProductCatalogRead || isProductSellerOp || sellerOwnOrders;
+            // F401: barcode label and exact-scan read endpoints are restricted to
+            // Admin/Vendedor; Seller scope is additionally enforced inside the action.
+            var barcodeRead = controller == typeof(ProductosCodigoBarrasController) && (
+                action.Name == nameof(ProductosCodigoBarrasController.Etiquetas) ||
+                action.Name == nameof(ProductosCodigoBarrasController.BuscarPorCodigo));
+            var allowsSeller = publicLogin || sessionRead || sessionLogout || isProductCatalogRead || isProductSellerOp || sellerOwnOrders || barcodeRead;
             var allowsBuyer = publicLogin || sessionRead || sessionLogout || buyerCheckout || buyerTracking || buyerOrder || isProductCatalogRead;
 
             var metadata = controller.GetCustomAttributes(inherit: true).Concat(action.GetCustomAttributes(inherit: true)).ToArray();
@@ -257,10 +262,10 @@ public class AutorizacionU2Tests
         // Sandbox QA: +2 endpoints de comprador y referencias reales de producto.
         // OMS evaluación: +1 controlador y +2 rutas exclusivas de Admin.
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
-        // Ninguna autorización queda implícita.
-        Assert.Equal(27, controllers.Length);
-        Assert.Equal(95, actions); // F360 agrega POST api/auth/logout autorizado.
-        Assert.Equal(96, routes); // Productos/GetAlertasStock tiene dos alias.
+        // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // Ninguna autorización queda implícita.
+        Assert.Equal(28, controllers.Length);
+        Assert.Equal(97, actions); // F360 agrega POST api/auth/logout autorizado.
+        Assert.Equal(98, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]
