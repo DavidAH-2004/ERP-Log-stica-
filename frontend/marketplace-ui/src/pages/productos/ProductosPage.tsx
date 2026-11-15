@@ -261,6 +261,12 @@ export default function ProductosPage() {
             onClick={() => navigate('/productos/etiquetas?todos=1')}>
             Hojas del catálogo
           </button>
+          {esAdmin && (
+            <button className="btn btn-secondary" type="button"
+              onClick={() => navigate('/productos/rotaciones')}>
+              Rotaciones EAN (Admin)
+            </button>
+          )}
           <button
             onClick={loadData}
             style={{

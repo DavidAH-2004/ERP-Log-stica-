@@ -24,6 +24,7 @@ const ContabilidadPage = lazy(() => import('./pages/contabilidad/ContabilidadPag
 const LiquidacionesPage = lazy(() => import('./pages/liquidaciones/LiquidacionesPage'));
 const ProductosPage = lazy(() => import('./pages/productos/ProductosPage'));
 const EtiquetasPage = lazy(() => import('./pages/productos/EtiquetasPage'));
+const RotacionesEanPage = lazy(() => import('./pages/productos/RotacionesEanPage'));
 const ReabastecimientoPage = lazy(() => import('./pages/reabastecimiento/ReabastecimientoPage'));
 const ProveedoresPage = lazy(() => import('./pages/proveedores/ProveedoresPage'));
 const AjustesPage = lazy(() => import('./pages/ajustes/AjustesPage'));
@@ -137,6 +138,7 @@ function AppRoutes() {
           <Route path="contabilidad" element={<RoleRouteGuard allowedRoles={['Admin']}><ContabilidadPage /></RoleRouteGuard>} />
           <Route path="liquidaciones" element={<RoleRouteGuard allowedRoles={['Admin']}><LiquidacionesPage /></RoleRouteGuard>} />
           <Route path="productos" element={<RoleRouteGuard allowedRoles={['Admin', 'Vendedor']}><ProductosPage /></RoleRouteGuard>} />
+          <Route path="productos/rotaciones" element={<RoleRouteGuard allowedRoles={['Admin']}><RotacionesEanPage /></RoleRouteGuard>} />
         <Route path="productos/etiquetas" element={<RoleRouteGuard allowedRoles={['Admin', 'Vendedor']}><EtiquetasPage /></RoleRouteGuard>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />
         </Route>

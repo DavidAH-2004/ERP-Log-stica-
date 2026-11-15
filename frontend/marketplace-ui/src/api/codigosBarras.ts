@@ -30,3 +30,29 @@ export const codigosBarrasApi = {
     apiClient.post<{ codigoEAN: string }>('/api/productos/' +
       encodeURIComponent(id) + '/codigo-barras/asignar'),
 };
+
+
+/** F476: Admin-only, explicitly feature-gated two-person EAN rotation. */
+export interface RotacionEanEvento {
+  solicitudId: string;
+  version: number;
+  estado: string;
+  codigoAnterior: string;
+  codigoNuevo: string;
+  solicitadoUtc: string;
+  aprobadoUtc: string | null;
+  ejecutadoUtc: string | null;
+}
+
+export const rotacionesEanApi = {
+  historial: (productoId: string) =>
+    apiClient.get<RotacionEanEvento[]>(
+      '/api/productos/' + encodeURIComponent(productoId) + '/codigo-barras/rotaciones'),
+  solicitar: (productoId: string, solicitudId: string, codigoNuevo: string, motivo: string) =>
+    apiClient.post<{ solicitudId: string; productoId: string; estado: string }>(
+      '/api/productos/' + encodeURIComponent(productoId) + '/codigo-barras/rotaciones',
+      { solicitudId, codigoNuevo, motivo }),
+  aprobar: (solicitudId: string) =>
+    apiClient.post<{ solicitudId: string; estado: string }>(
+      '/api/productos/codigo-barras/rotaciones/' + encodeURIComponent(solicitudId) + '/aprobar'),
+};
