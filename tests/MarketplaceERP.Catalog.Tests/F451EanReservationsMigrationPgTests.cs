@@ -160,6 +160,50 @@ public sealed class F451EanReservationsMigrationPgTests
                 count.Parameters.AddWithValue("request", requestId);
                 Assert.Equal(2, Convert.ToInt32(await count.ExecuteScalarAsync()));
             }
+
+            // F457: synthetic alias read on disposable PostgreSQL only.
+            // These rows simulate the future rotation output. No historical
+            // product EAN is modified and no runtime rotation is enabled.
+            var historicalAlias = CodigoBarras.GenerarInterno(74);
+            await using (var cn = new NpgsqlConnection(scratch.ConnectionString))
+            {
+                await cn.OpenAsync();
+                await using var insert = new NpgsqlCommand("""
+                    INSERT INTO catalog.reservas_ean
+                      ("CodigoEAN", "ProductoId", "Estado", "Origen")
+                    VALUES (@code, @product, 'Alias', 'Emision')
+                    """, cn);
+                insert.Parameters.AddWithValue("code", historicalAlias);
+                insert.Parameters.AddWithValue("product", p1.Id);
+                Assert.Equal(1, await insert.ExecuteNonQueryAsync());
+            }
+            await using (var db = NewContext())
+            {
+                var disabled = await ConsultaCodigoEan.BuscarAsync(
+                    db, historicalAlias, null, permitirHistoricos: false);
+                Assert.Empty(disabled);
+
+                var admin = await ConsultaCodigoEan.BuscarAsync(
+                    db, historicalAlias, null, permitirHistoricos: true);
+                var match = Assert.Single(admin);
+                Assert.Equal(p1.Id, match.Id);
+                Assert.Equal(actual, match.CodigoEAN);
+                Assert.Equal(historicalAlias, match.CodigoLeido);
+                Assert.True(match.EsAlias);
+
+                var owner = await ConsultaCodigoEan.BuscarAsync(
+                    db, historicalAlias, p1.VendedorId, permitirHistoricos: true);
+                Assert.Single(owner);
+                var other = await ConsultaCodigoEan.BuscarAsync(
+                    db, historicalAlias, p2.VendedorId, permitirHistoricos: true);
+                Assert.Empty(other);
+
+                var current = await ConsultaCodigoEan.BuscarAsync(
+                    db, actual, p1.VendedorId, permitirHistoricos: true);
+                Assert.False(Assert.Single(current).EsAlias);
+                Assert.Equal(actual,
+                    (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+            }
         }
         finally
         {

@@ -52,3 +52,12 @@
 - Revisión de impacto fiscal/GS1, negocio y seguridad, aprobación explícita para migración Development y eventual Production bajo #65.
 
 **Estado de aceptación:** definido el diseño de campos/cardinalidad/retención/unicidad y no reutilización; pendiente implementar tabla, migración, triggers, API/UX, pruebas físicas y aceptar política. La PR #68 continúa DRAFT, #70 abierto. No modificar EAN ni ejecutar DDL por esta definición.
+
+
+## F457 — Consulta controlada de alias (en código, no habilitada)
+
+- `ConsultaCodigoEan.BuscarAsync` permite lectura por `catalog.reservas_ean` con parámetro SQL seguro, `Actual` o `Alias`, hasta dos coincidencias, y aplica `VendedorId` en PostgreSQL antes de materializar datos.
+- `GET /api/productos/por-codigo/{codigo}` conserva comportamiento anterior por defecto. La opción `Barcodes:EnableHistoricalAliasLookup` está **OFF** salvo activación explícita en entorno ya migrado y certificado. Si falta tabla, responde 503, sin fallback a resultados potencialmente inconsistentes.
+- La respuesta incluye `CodigoLeido` y `EsAlias` para identificar el tipo de etiqueta sin cambiar `CodigoEAN` del producto. No registra lecturas WMS automáticamente.
+- F457 prueba consulta de código vigente y alias sintético del mismo producto, filtrado del vendedor propietario y ausencia para otro vendedor **solo en PostgreSQL efímero CI**.
+- **No habilitar el flag todavía:** F451 no se aplicó en Neon, aún no hay flujo transaccional de rotación, la captura WMS y el hardware siguen pendientes.

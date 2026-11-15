@@ -3,6 +3,8 @@ using MarketplaceERP.Catalog.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Npgsql;
 
 namespace MarketplaceERP.API.Controllers;
 
@@ -17,8 +19,15 @@ namespace MarketplaceERP.API.Controllers;
 public sealed class ProductosCodigoBarrasController : ControllerBase
 {
     private readonly CatalogDbContext _catalog;
+    private readonly bool _permitirHistoricos;
 
-    public ProductosCodigoBarrasController(CatalogDbContext catalog) => _catalog = catalog;
+    public ProductosCodigoBarrasController(CatalogDbContext catalog,
+        IConfiguration? configuration = null)
+    {
+        _catalog = catalog;
+        // OFF unless F451 schema, scan isolation and rollback were certified.
+        _permitirHistoricos = configuration?.GetValue<bool>("Barcodes:EnableHistoricalAliasLookup") ?? false;
+    }
 
     [HttpGet("etiquetas")]
     public async Task<IActionResult> Etiquetas([FromQuery] string? ids, CancellationToken ct)
@@ -55,18 +64,26 @@ public sealed class ProductosCodigoBarrasController : ControllerBase
         if (!CodigoBarras.EsEan13Valido(codigo))
             return BadRequest(new { mensaje = "Se requiere un EAN-13 con dígito verificador válido." });
 
-        var consulta = _catalog.Productos.AsNoTracking().Where(p => p.CodigoEAN == codigo);
+        Guid? vendedor = null;
         if (!User.IsInRole("Admin"))
         {
-            var vendedor = ObtenerVendedorActual();
+            vendedor = ObtenerVendedorActual();
             if (!vendedor.HasValue) return Forbid();
-            consulta = consulta.Where(p => p.VendedorId == vendedor.Value);
         }
 
-        var coincidencias = await consulta
-            .Select(p => new { p.Id, p.Sku, p.Nombre, p.CodigoEAN })
-            .Take(2)
-            .ToListAsync(ct);
+        List<ResultadoConsultaCodigoEan> coincidencias;
+        try
+        {
+            coincidencias = await ConsultaCodigoEan.BuscarAsync(
+                _catalog, codigo, vendedor, _permitirHistoricos, ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01" && _permitirHistoricos)
+        {
+            // Feature switch was enabled before the schema migration.
+            // Never return unverified legacy results as a fallback.
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "Historial de EAN no disponible hasta completar la migración." });
+        }
 
         if (coincidencias.Count == 0) return NotFound(new { mensaje = "Código no encontrado." });
         if (coincidencias.Count > 1)
