@@ -99,6 +99,109 @@ assert.equal(Object.hasOwn(identity, 'token'), false);
 const purchase = await call(request('/api/compras/po', 'GET', { cookie: cookies.header }));
 assert.equal(purchase.status, 200, 'Real Admin RBAC GET must work through BFF');
 
+// F384: Admin provisions fresh Vendedor and Comprador fixtures ONLY in the
+// disposable PostgreSQL database on the CI runner. This is NOT a staging write.
+const { randomUUID, randomBytes } = await import('node:crypto');
+const nonce = randomUUID().replaceAll('-', '').slice(0, 16);
+const sellerEmail = 'f384-seller-' + nonce + '@erp.invalid';
+const buyerEmail = 'f384-buyer-' + nonce + '@erp.invalid';
+const sellerPassword = randomBytes(28).toString('base64url');
+const buyerPassword = randomBytes(28).toString('base64url');
+const adminMutatingHeaders = {
+  cookie: cookies.header,
+  origin: browserOrigin,
+  'x-erp-csrf': payload.csrfToken,
+  'content-type': 'application/json',
+};
+const vendor = await call(request('/api/vendedores', 'POST', adminMutatingHeaders, {
+  nombreEmpresa: 'F384 Vendedor temporal',
+  email: sellerEmail,
+  telefono: '0000-0000',
+}));
+assert.equal(vendor.status, 201, 'F384 vendor fixture must be Admin-only and local');
+const vendorBody = await vendor.json();
+assert.match(String(vendorBody.id), /^[0-9a-f-]{36}$/i);
+const seller = await call(request('/api/usuarios', 'POST', adminMutatingHeaders, {
+  email: sellerEmail, password: sellerPassword, nombre: 'F384 Seller',
+  rol: 'Vendedor', vendedorId: vendorBody.id,
+}));
+assert.equal(seller.status, 201, 'F384 seller user creation failed in disposable CI DB');
+const buyer = await call(request('/api/usuarios', 'POST', adminMutatingHeaders, {
+  email: buyerEmail, password: buyerPassword, nombre: 'F384 Buyer',
+  rol: 'Comprador',
+}));
+assert.equal(buyer.status, 201, 'F384 buyer user creation failed in disposable CI DB');
+
+async function roleSession(accountEmail, accountPassword, expectedRole) {
+  const sendLogin = () => call(request('/api/auth/login', 'POST', {
+    origin: browserOrigin, 'content-type': 'application/json',
+  }, { email: accountEmail, password: accountPassword }));
+  let response = await sendLogin();
+  if (response.status === 429) {
+    // Respect the existing real localhost login limiter, never bypass it.
+    await delay(65_000);
+    response = await sendLogin();
+  }
+  assert.equal(response.status, 200, 'F384 role login did not succeed');
+  const body = await response.json();
+  assert.equal(body.rol, expectedRole);
+  assert.equal(body.role, expectedRole);
+  assert.equal(Object.hasOwn(body, 'token'), false);
+  assert.equal(body.csrfToken?.length, 43);
+  const roleCookies = cookiesFrom(response);
+  assert.match(roleCookies.all, /HttpOnly/);
+  assert.match(roleCookies.all, /Secure/);
+  assert.match(roleCookies.all, /SameSite=Strict/);
+  const sessionResponse = await call(request('/api/auth/session', 'GET', {
+    cookie: roleCookies.header,
+    authorization: 'Bearer attacker-controlled-placeholder',
+    'x-forwarded-for': '203.0.113.31',
+  }));
+  assert.equal(sessionResponse.status, 200);
+  const identity = await sessionResponse.json();
+  assert.equal(identity.rol, expectedRole);
+  assert.equal(identity.role, expectedRole);
+  assert.equal(identity.csrfToken, body.csrfToken);
+  assert.equal(Object.hasOwn(identity, 'token'), false);
+  return { cookies: roleCookies.header, csrf: body.csrfToken };
+}
+
+const sellerSession = await roleSession(sellerEmail, sellerPassword, 'Vendedor');
+const sellerOrders = await call(request('/api/ordenes/mis-ordenes', 'GET', {
+  cookie: sellerSession.cookies,
+}));
+assert.equal(sellerOrders.status, 200, 'Seller must read own orders via real API');
+assert.equal((await call(request('/api/compras/po', 'GET', {
+  cookie: sellerSession.cookies,
+}))).status, 403, 'Seller must not read Admin purchasing');
+assert.equal((await call(request('/api/usuarios', 'POST', {
+  cookie: sellerSession.cookies, origin: browserOrigin, 'x-erp-csrf': sellerSession.csrf,
+  'content-type': 'application/json',
+}, { email: 'f384-unauthorized-' + nonce + '@erp.invalid',
+     password: 'not-used-in-real-production', rol: 'Admin', nombre: 'No create' }))).status,
+403, 'Seller must not provision Admin accounts');
+
+const buyerSession = await roleSession(buyerEmail, buyerPassword, 'Comprador');
+assert.equal((await call(request('/api/ordenes', 'GET', {
+  cookie: buyerSession.cookies,
+}))).status, 403, 'Buyer must not list Admin orders');
+assert.equal((await call(request('/api/compras/po', 'GET', {
+  cookie: buyerSession.cookies,
+}))).status, 403, 'Buyer must not read Admin purchasing');
+
+console.log('F384_REAL_API_BFF_ROLES_PASS ' + JSON.stringify({
+  roles: ['Admin', 'Vendedor', 'Comprador'],
+  identityOnRealDotNet: true,
+  permissions: 'Admin purchasing 200; Seller own orders 200; Seller/Buyer Admin routes 403',
+  forbiddenAccountProvisioning: 403,
+  jwtInClientJson: false,
+  cookies: 'HttpOnly+Secure+SameSiteStrict',
+  csrf: 'enforced on all mutating requests',
+  database: 'CI disposable PostgreSQL only',
+  payments: 'Disabled',
+  renderOrNeonTouched: false,
+}));
+
 // Reject invalid Origin and CSRF without reaching ASP.NET; no mutations.
 const beforeDenials = upstreamRequests;
 assert.equal((await call(request('/api/auth/logout', 'POST',
