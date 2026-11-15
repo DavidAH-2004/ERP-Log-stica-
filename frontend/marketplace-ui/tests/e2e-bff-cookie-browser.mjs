@@ -60,6 +60,11 @@ async function fakeRenderFetch(upstream, options) {
   const identity = sessions.get(token);
   if (!identity) return json({ mensaje: 'JWT inválido (fixture)' }, 401);
 
+  if (uri.pathname === '/api/auth/logout' && options.method === 'POST') {
+    sessions.delete(token);
+    return new Response(null, { status: 204 });
+  }
+
   if (uri.pathname === '/api/auth/session') {
     return json({
       usuario: identity.role + ' F355', rol: identity.role, role: identity.role,
