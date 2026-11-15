@@ -311,6 +311,17 @@ jobs:
         working-directory: frontend/marketplace-ui
         run: node tests/e2e-auth-browser.mjs
 
+      # F355: isolated HTTPS Chromium exercises the opt-in BFF/cookie path.
+      # VITE_BFF_AUTH_MODE is scoped to this step ONLY; production deployments
+      # and existing CI tests continue using the legacy bearer path.
+      - name: Test secure cookie BFF with HTTPS Chromium (mock API only)
+        working-directory: frontend/marketplace-ui
+        env:
+          VITE_BFF_AUTH_MODE: enabled
+        run: |
+          npm run build
+          node tests/e2e-bff-cookie-browser.mjs
+
       - name: Build .NET API for local full-stack E2E
         run: |
           dotnet restore MarketplaceERP.sln
