@@ -119,6 +119,49 @@ public class AuthController : ControllerBase
         return Ok(new LoginResponse(token, rolCanonico, expiresAt, usuario.Nombre, rolCanonico));
     }
 
+    /// <summary>
+    /// F353: endpoint de sesión para el BFF HttpOnly de PREVIEW.
+    /// El JWT permanece en el servidor proxy; aquí solo se exponen los
+    /// datos mínimos de identidad. Se comprueba usuario activo y rol vigente.
+    /// No habilita revocación global ni sustituye la pasarela de pagos.
+    /// </summary>
+    [Authorize]
+    [HttpGet("session")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Session(CancellationToken cancellationToken)
+    {
+        var idValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var expiryValue = User.FindFirst(JwtRegisteredClaimNames.Exp)?.Value;
+        if (!Guid.TryParse(idValue, out var usuarioId) ||
+            !long.TryParse(expiryValue, out var expiryUnix) ||
+            expiryUnix <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        {
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+        }
+
+        var usuario = await _coreDb.Usuarios
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == usuarioId && u.Activo, cancellationToken);
+
+        var rolCanonico = usuario is null ? null : UsuarioRoles.Canonizar(usuario.Rol);
+        if (usuario is null || rolCanonico is null ||
+            !string.Equals(User.FindFirst(ClaimTypes.Role)?.Value, rolCanonico, StringComparison.Ordinal))
+        {
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+        }
+
+        return Ok(new
+        {
+            usuario = usuario.Nombre,
+            rol = rolCanonico,
+            role = rolCanonico,
+            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiryUnix).UtcDateTime,
+            email = usuario.Email,
+            vendedorId = rolCanonico == "Vendedor" ? usuario.VendedorId : null
+        });
+    }
+
     private string GenerarToken(Usuario usuario, string rolCanonico)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key));
