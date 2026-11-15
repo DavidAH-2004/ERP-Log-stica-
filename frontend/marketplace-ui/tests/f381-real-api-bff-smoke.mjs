@@ -189,6 +189,45 @@ assert.equal((await call(request('/api/compras/po', 'GET', {
   cookie: buyerSession.cookies,
 }))).status, 403, 'Buyer must not read Admin purchasing');
 
+// F401: barcode endpoints are read-only, authenticated and seller-scoped.
+// This exercises the REAL .NET API/BFF against disposable PostgreSQL, never DEV cloud.
+const adminLabelsResult = await call(request('/api/productos/etiquetas', 'GET', {
+  cookie: cookies.header,
+}));
+assert.equal(adminLabelsResult.status, 200, 'Admin labels endpoint must respond');
+const adminLabels = await adminLabelsResult.json();
+assert.ok(Array.isArray(adminLabels));
+assert.ok(adminLabels.length <= 500);
+
+const sellerLabelsResult = await call(request('/api/productos/etiquetas', 'GET', {
+  cookie: sellerSession.cookies,
+}));
+assert.equal(sellerLabelsResult.status, 200, 'Seller may read only own labels');
+assert.ok(Array.isArray(await sellerLabelsResult.json()));
+assert.equal((await call(request('/api/productos/etiquetas', 'GET', {
+  cookie: buyerSession.cookies,
+}))).status, 403, 'Buyer cannot access label export');
+assert.equal((await call(request('/api/productos/etiquetas', 'GET'))).status,
+  401, 'Anonymous may not access label export');
+
+const tooMany = Array.from({length:101},()=>'00000000-0000-0000-0000-000000000001').join(',');
+assert.equal((await call(request('/api/productos/etiquetas?ids='+tooMany, 'GET', {
+  cookie: cookies.header,
+}))).status,400,'Label query of more than 100 ids must be denied');
+assert.equal((await call(request('/api/productos/por-codigo/2000000000014', 'GET', {
+  cookie: cookies.header,
+}))).status,400,'Invalid EAN checksum must be denied');
+
+console.log('F401_REAL_BARCODE_ROLES_PASS ' + JSON.stringify({
+  roleContract: 'Admin 200, Seller 200, Buyer 403, Anonymous 401',
+  maxSelected: 100,
+  maxUnselected: 500,
+  checksum: 'invalid 400',
+  upstream: 'disposable-localhost-dotnet-and-postgresql',
+  productionTouched: false,
+  barcodeWrites: false,
+}));
+
 console.log('F384_REAL_API_BFF_ROLES_PASS ' + JSON.stringify({
   roles: ['Admin', 'Vendedor', 'Comprador'],
   identityOnRealDotNet: true,
