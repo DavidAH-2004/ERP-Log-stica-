@@ -127,6 +127,7 @@ public class CoreDbContext : DbContext
             entity.Property(u => u.Rol).HasMaxLength(50).IsRequired();
             entity.Property(u => u.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(u => u.Activo).HasDefaultValue(true);
+            entity.Property(u => u.VersionSesion).HasDefaultValue(0);
             entity.Property(u => u.FechaRegistro).HasDefaultValueSql("NOW()");
 
             entity.HasOne(u => u.Vendedor)
