@@ -34,8 +34,21 @@ public sealed class HttpRequestAuditMiddlewareTests
     [InlineData("/api/auth/login", "auth.login")]
     [InlineData("/api/auth/session", "auth.session")]
     [InlineData("/api/auth/logout", "auth.logout")]
-    [InlineData("/api/ordenes/secret-customer", "api.other")]
+    [InlineData("/api/ordenes/secret-customer", "api.orders")]
     [InlineData("/api/WMS/abc", "api.other")]
+    [InlineData("/api/productos/por-codigo/private-identifier", "barcode.lookup")]
+    [InlineData("/api/productos/etiquetas/private-identifier", "barcode.labels")]
+    [InlineData("/api/inventario/conteos-ciclicos/sesiones/private-identifier", "counts.sessions")]
+    [InlineData("/api/productos/private-identifier", "api.catalog")]
+    [InlineData("/api/inventario/private-identifier", "api.inventory")]
+    [InlineData("/api/ordenes/private-identifier", "api.orders")]
+    [InlineData("/api/compras/private-identifier", "api.procurement")]
+    [InlineData("/api/finanzas/private-identifier", "api.finance")]
+    [InlineData("/api/pagos/private-identifier", "api.payments")]
+    [InlineData("/api/auth/private-identifier", "auth.other")]
+    [InlineData("/api/productos/etiquetas", "barcode.labels")]
+    [InlineData("/api/productos/por-codigo/4006381333931", "barcode.lookup")]
+    [InlineData("/api/inventario/conteos-ciclicos/sesiones/11111111-1111-4111-8111-111111111111", "counts.sessions")]
     [InlineData("/swagger/index.html", "documentation")]
     [InlineData("/unrecognized-sensitive-info", "other")]
     public void RouteBucketsContainNoClientSuppliedPath(string path, string expected) =>
@@ -62,7 +75,7 @@ public sealed class HttpRequestAuditMiddlewareTests
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Contains("route=api.other", entry.Text);
+        Assert.Contains("route=api.orders", entry.Text);
         Assert.Contains("method=POST", entry.Text);
         Assert.Contains("status=503", entry.Text);
         Assert.Contains("elapsed_ms=", entry.Text);
@@ -70,6 +83,37 @@ public sealed class HttpRequestAuditMiddlewareTests
         Assert.DoesNotContain("private-value", entry.Text);
         Assert.DoesNotContain("super-private-jwt", entry.Text);
         Assert.DoesNotContain("private-cookie", entry.Text);
+    }
+
+    [Theory]
+    [InlineData("/api/productos/por-codigo/secret-ean-4006381333931", "barcode.lookup")]
+    [InlineData("/api/inventario/conteos-ciclicos/sesiones/private-guid", "counts.sessions")]
+    [InlineData("/api/compras/customer@private.example", "api.procurement")]
+    public async Task F435_ErrorBucketIsConstantAndNeverLeaksPathData(string path, string expectedBucket)
+    {
+        var logger = new CaptureLogger();
+        var middleware = new HttpRequestAuditMiddleware(
+            http =>
+            {
+                http.Response.StatusCode = 503;
+                return Task.CompletedTask;
+            }, logger);
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+        ctx.Request.QueryString = new QueryString("?token=private-query-token");
+        ctx.Request.Headers.Authorization = "Bearer private-jwt";
+        ctx.Request.Method = "GET";
+
+        await middleware.InvokeAsync(ctx);
+
+        var entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Contains($"route={expectedBucket}", entry.Text);
+        Assert.Contains("status=503", entry.Text);
+        Assert.DoesNotContain("private", entry.Text);
+        Assert.DoesNotContain("4006381333931", entry.Text);
+        Assert.DoesNotContain("customer@", entry.Text);
+        Assert.DoesNotContain("token=", entry.Text);
     }
 
     [Fact]

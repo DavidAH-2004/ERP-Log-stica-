@@ -58,6 +58,28 @@ public sealed class HttpRequestAuditMiddleware
             return "auth.session";
         if (path.Equals(new PathString("/api/auth/logout"), StringComparison.OrdinalIgnoreCase))
             return "auth.logout";
+        // F435: fixed route families make 5xx alerts actionable without
+        // recording customer IDs, EANs, URL segments, cookies or tokens.
+        if (path.StartsWithSegments(new PathString("/api/productos/por-codigo"), StringComparison.OrdinalIgnoreCase))
+            return "barcode.lookup";
+        if (path.StartsWithSegments(new PathString("/api/productos/etiquetas"), StringComparison.OrdinalIgnoreCase))
+            return "barcode.labels";
+        if (path.StartsWithSegments(new PathString("/api/inventario/conteos-ciclicos/sesiones"), StringComparison.OrdinalIgnoreCase))
+            return "counts.sessions";
+        if (path.StartsWithSegments(new PathString("/api/productos"), StringComparison.OrdinalIgnoreCase))
+            return "api.catalog";
+        if (path.StartsWithSegments(new PathString("/api/inventario"), StringComparison.OrdinalIgnoreCase))
+            return "api.inventory";
+        if (path.StartsWithSegments(new PathString("/api/ordenes"), StringComparison.OrdinalIgnoreCase))
+            return "api.orders";
+        if (path.StartsWithSegments(new PathString("/api/compras"), StringComparison.OrdinalIgnoreCase))
+            return "api.procurement";
+        if (path.StartsWithSegments(new PathString("/api/finanzas"), StringComparison.OrdinalIgnoreCase))
+            return "api.finance";
+        if (path.StartsWithSegments(new PathString("/api/pagos"), StringComparison.OrdinalIgnoreCase))
+            return "api.payments";
+        if (path.StartsWithSegments(new PathString("/api/auth"), StringComparison.OrdinalIgnoreCase))
+            return "auth.other";
         if (path.StartsWithSegments(new PathString("/api"), StringComparison.OrdinalIgnoreCase))
             return "api.other";
         if (path.StartsWithSegments(new PathString("/swagger"), StringComparison.OrdinalIgnoreCase))
