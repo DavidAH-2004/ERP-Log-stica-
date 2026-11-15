@@ -327,6 +327,9 @@ jobs:
       - name: F405 Avery 5160 print layout (Chromium, virtual PDF only)
         working-directory: frontend/marketplace-ui
         run: node tests/f405-avery-print-layout.mjs
+      - name: F406 JsBarcode to ZXing synthetic optical round-trip (Chromium)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f406-optical-roundtrip.mjs
 
       - name: Test real browser with mock API only
         working-directory: frontend/marketplace-ui
