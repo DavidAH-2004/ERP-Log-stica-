@@ -108,6 +108,8 @@ public class ConfiguracionPasarelaI2B1Tests
         // Never present an absent, unapproved bank reconciliation integration
         // as usable just because the mock opt-in flag was accidentally set.
         Assert.Null(sp.GetService<IPaymentRecoveryGateway>());
+        Assert.Null(sp.GetService<EvaluadorConciliacionPago>());
+        Assert.Null(sp.GetService<RecuperacionFinancieraService>());
     }
 
     [Fact]

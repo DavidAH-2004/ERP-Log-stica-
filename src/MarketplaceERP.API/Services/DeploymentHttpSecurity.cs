@@ -40,12 +40,34 @@ public static class DeploymentHttpSecurity
         // Multiple headers, comma-joined chains, malformed addresses, loopback
         // and wildcards must never influence the limiter key.
         if (values.Count != 1 || values[0] is not string raw ||
-            raw.Contains(',') || !IPAddress.TryParse(raw, out var ip) ||
-            IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) ||
-            ip.Equals(IPAddress.IPv6Any))
+            raw.Contains(',') || !IPAddress.TryParse(raw, out var ip))
             return fallback;
 
-        return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
+        ip = ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip;
+        // F442: a public ingress cannot legitimately report an RFC1918,
+        // link-local, unspecified or multicast browser IP. Reject such
+        // values instead of letting an untrusted/private key partition the
+        // authentication limiter. No X-Forwarded-For trust is added.
+        if (IsNonPublicRateLimitAddress(ip)) return fallback;
+        return ip.ToString();
+    }
+
+    private static bool IsNonPublicRateLimitAddress(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) ||
+            ip.Equals(IPAddress.IPv6Any) || ip.IsIPv6LinkLocal ||
+            ip.IsIPv6Multicast || ip.IsIPv6SiteLocal)
+            return true;
+
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            return (ip.GetAddressBytes()[0] & 0xfe) == 0xfc; // fc00::/7 ULA
+
+        var b = ip.GetAddressBytes();
+        return b[0] == 0 || b[0] == 10 || b[0] >= 224 ||
+               (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+               (b[0] == 192 && b[1] == 168) ||
+               (b[0] == 169 && b[1] == 254) ||
+               (b[0] == 100 && b[1] >= 64 && b[1] <= 127);
     }
 
     /// <summary>

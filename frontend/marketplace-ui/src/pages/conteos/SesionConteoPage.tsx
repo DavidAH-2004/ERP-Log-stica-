@@ -126,6 +126,15 @@ export default function SesionConteoPage() {
     try {
       const p = await codigosBarrasApi.buscarPorCodigo(codigo);
       if (lookupActualRef.current !== lecturaId) return;
+      // F440: a 200 response is not enough. Never turn a partial/corrupt
+      // catalog response, or a different EAN, into a verified stock write.
+      if (!p || p.codigoEAN !== codigo ||
+          typeof p.id !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.id) ||
+          typeof p.sku !== 'string' || !p.sku.trim() ||
+          typeof p.nombre !== 'string' || !p.nombre.trim())
+        throw new Error('Respuesta de catálogo no verificable.');
+
       // A delayed response must not authenticate a *different* pending scan,
       // including a rescan of the same barcode after Discard.
       setPendiente(actual => (actual?.lecturaId === lecturaId

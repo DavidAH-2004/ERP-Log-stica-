@@ -116,6 +116,15 @@ public class DeploymentHttpSecurityTests
     [InlineData("127.0.0.1")]
     [InlineData("0.0.0.0")]
     [InlineData("::")]
+    [InlineData("10.10.0.7")]
+    [InlineData("172.16.1.5")]
+    [InlineData("192.168.1.99")]
+    [InlineData("169.254.12.4")]
+    [InlineData("100.64.12.4")]
+    [InlineData("224.0.0.1")]
+    [InlineData("fc00::123")]
+    [InlineData("fe80::123")]
+    [InlineData("::ffff:10.0.0.25")]
     public void F388_CabeceraMalformadaOInseguraNoControlaLimitador(string value)
     {
         var context = new DefaultHttpContext();

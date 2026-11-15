@@ -39,7 +39,7 @@ const fulfill=(route,body,status=200)=>route.fulfill({
   status,contentType:'application/json',body:JSON.stringify(body)
 });
 async function mockApi(page){
-  const s={posts:[],failNext:false,failGateway:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null};
+  const s={posts:[],failNext:false,failGateway:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null,lookupCorrupt:null};
   await page.route(url=>url.pathname.startsWith('/api/'),async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
     if(url.hostname!=='127.0.0.1'){s.external++;return route.abort();}
@@ -74,6 +74,13 @@ async function mockApi(page){
         if(failure==='network')return route.abort('failed');
         return fulfill(route,{mensaje:'Catalog temporarily unavailable'},503);
       }
+      const corrupt=s.lookupCorrupt;s.lookupCorrupt=null;
+      if(corrupt==='ean-mismatch')return fulfill(route,{
+        id:'22222222-2222-4222-8222-222222222222',sku:'F411-TEST',
+        nombre:'Producto distinto',codigoEAN:'5901234123457'});
+      if(corrupt==='missing-sku')return fulfill(route,{
+        id:'22222222-2222-4222-8222-222222222222',
+        nombre:'Producto incompleto',codigoEAN:valid});
       return fulfill(route,{id:'22222222-2222-4222-8222-222222222222',
         sku:'F411-TEST',nombre:'Producto de prueba',codigoEAN:valid});
     }
@@ -248,6 +255,19 @@ try{
   assert.deepEqual(state.posts[4],state.posts[3],
     'F433 retry must preserve UUID, EAN, amount and location');
   assert.equal(state.successful,3,'F433 must not count a gateway error twice');
+
+  // F440: even a HTTP 200 must not authorize inventory if catalog lookup
+  // returns a different EAN or an incomplete product. Never write a count.
+  for(const kind of ['ean-mismatch','missing-sku']){
+    state.lookupCorrupt=kind;
+    await scanner.fill(valid);
+    await scanner.press('Enter');
+    await page.getByText('No se pudo verificar el producto. Vuelve a intentarlo.')
+      .waitFor({timeout:8000});
+    await scanner.waitFor({state:'visible'});
+    assert.equal(await qty.count(),0,'F440 must reject '+kind);
+    assert.equal(state.posts.length,5,'F440 must make zero POST for '+kind);
+  }
   await ctx.close();
 
   // F422: exercitar la ruta REAL de @zxing/browser a través de
@@ -332,6 +352,7 @@ try{
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,f432FrozenRetryPayload:true,
     f437BlockCloseCancelNavigateOnUncertainWrite:true,
+    f440RejectMalformedOrMismatchedCatalogResponse:true,
     f433Server503RetrySamePayload:true,
     buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
