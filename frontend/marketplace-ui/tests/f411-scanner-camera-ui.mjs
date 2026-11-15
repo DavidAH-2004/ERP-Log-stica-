@@ -154,11 +154,22 @@ try{
   assert.equal(await page.getByRole('button',{name:'Descartar'}).isDisabled(),true,
     'F432: an uncertain write must not be discarded and rescanned with a new UUID');
   assert.equal(await qty.inputValue(),'6');
+  // F437: never allow operator to leave, close or cancel the session while
+  // the server's outcome is unknown. No business mutation should be sent.
+  for(const name of ['Volver','Cerrar sesión','Cancelar sesión']){
+    assert.equal(await page.getByRole('button',{name,exact:true}).isDisabled(),true,
+      'F437 must block '+name+' while POST outcome is uncertain');
+  }
+  assert.equal(state.posts.length,2);
   await page.getByRole('button',{name:'Reintentar guardar (Enter)'}).click();
   await scanner.waitFor({state:'visible'});
   assert.equal(state.posts.length,3);
   assert.equal(state.posts[1].cantidad,6);
   assert.deepEqual(state.posts[2],state.posts[1],'Retry must preserve UUID and amount');
+  for(const name of ['Volver','Cerrar sesión','Cancelar sesión']){
+    assert.equal(await page.getByRole('button',{name,exact:true}).isEnabled(),true,
+      'F437 must restore '+name+' after successful reconciliation');
+  }
   assert.equal(state.successful,2);
   assert.equal(state.external,0);
 
@@ -320,6 +331,7 @@ try{
     syntheticUsbKeyboard:'13 digits + Enter',invalidLocalRejection:true,
     noInventoryPostBeforeQuantity:true,blockedCameraHandled:true,
     offlineRetrySameUuid:true,f432FrozenRetryPayload:true,
+    f437BlockCloseCancelNavigateOnUncertainWrite:true,
     f433Server503RetrySamePayload:true,
     buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,

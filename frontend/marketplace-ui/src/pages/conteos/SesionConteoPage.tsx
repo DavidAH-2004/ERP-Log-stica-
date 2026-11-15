@@ -204,6 +204,8 @@ export default function SesionConteoPage() {
   };
 
   const cerrar = async (decisiones: DecisionCierre[]) => {
+    // F437: a pending unknown POST must be reconciled, not closed/cancelled.
+    if (reintentoPendiente || enviandoRef.current) return;
     setEnviando(true);
     try {
       setResumen(await sesionesConteoApi.cerrar(id, decisiones));
@@ -216,6 +218,7 @@ export default function SesionConteoPage() {
   };
 
   const cancelarSesion = async () => {
+    if (reintentoPendiente || enviandoRef.current) return;
     if (!window.confirm('¿Cancelar esta sesión? Los conteos ya registrados se conservan.')) return;
     try {
       await sesionesConteoApi.cancelar(id);
@@ -245,7 +248,9 @@ export default function SesionConteoPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxWidth: 720 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button className="btn btn-ghost" style={boton} aria-label="Volver" onClick={() => navigate('/conteos/escaner')}>
+        <button className="btn btn-ghost" style={boton} aria-label="Volver"
+          disabled={enviando || reintentoPendiente}
+          onClick={() => navigate('/conteos/escaner')}>
           <ArrowLeft size={18} />
         </button>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -357,10 +362,12 @@ export default function SesionConteoPage() {
 
       {abierta && (
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-primary" style={{ ...boton, flex: 1 }} onClick={() => setCierre(true)}>
+          <button className="btn btn-primary" style={{ ...boton, flex: 1 }}
+            disabled={enviando || reintentoPendiente} onClick={() => setCierre(true)}>
             {s.modo === 'Recorrido' ? 'Cerrar pasillo' : 'Cerrar sesión'}
           </button>
-          <button className="btn btn-ghost" style={boton} onClick={cancelarSesion}>Cancelar sesión</button>
+          <button className="btn btn-ghost" style={boton}
+            disabled={enviando || reintentoPendiente} onClick={cancelarSesion}>Cancelar sesión</button>
         </div>
       )}
 

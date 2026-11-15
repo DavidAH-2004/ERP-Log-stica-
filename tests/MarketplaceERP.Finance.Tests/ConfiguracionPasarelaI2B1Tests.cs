@@ -95,6 +95,21 @@ public class ConfiguracionPasarelaI2B1Tests
                 Guid.NewGuid(), Guid.NewGuid(), 1m, "USD", "F436-offline-test")));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void F438_Disabled_NoRegistraGatewayDeRecuperacionNiMock(bool isDevelopment)
+    {
+        var services = new ServiceCollection();
+        services.AddFinanceServices(Configurar("Disabled", "true"), isDevelopment);
+        using var sp = services.BuildServiceProvider();
+        Assert.True(sp.GetRequiredService<PaymentOperationsMode>().IsDisabled);
+        Assert.IsType<PagoServiceDisabled>(sp.GetRequiredService<IPaymentGateway>());
+        // Never present an absent, unapproved bank reconciliation integration
+        // as usable just because the mock opt-in flag was accidentally set.
+        Assert.Null(sp.GetService<IPaymentRecoveryGateway>());
+    }
+
     [Fact]
     public void Development_ConOptInExplicito_RegistraSolamenteElMock()
     {
