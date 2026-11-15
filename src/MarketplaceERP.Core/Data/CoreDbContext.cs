@@ -128,8 +128,7 @@ public class CoreDbContext : DbContext
             entity.Property(u => u.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(u => u.Activo).HasDefaultValue(true);
             entity.Property(u => u.VersionSesion).HasDefaultValue(0);
-            entity.Property(u => u.IntentosLoginVentana).HasDefaultValue(0);
-            entity.Property(u => u.InicioVentanaLoginUtc).HasColumnType("timestamp with time zone");
+
             entity.Property(u => u.FechaRegistro).HasDefaultValueSql("NOW()");
 
             entity.HasOne(u => u.Vendedor)
