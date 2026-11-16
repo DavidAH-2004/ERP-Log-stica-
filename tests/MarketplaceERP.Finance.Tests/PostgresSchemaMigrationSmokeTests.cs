@@ -159,6 +159,59 @@ public sealed class PostgresSchemaMigrationSmokeTests : IAsyncLifetime
         await AssertMigrationStateAsync(catalog, NullableEanMigration);
         await AssertMigrationStateAsync(finance);
         Assert.Equal(2, await catalog.Productos.CountAsync());
+
+        // F483: real ephemeral PostgreSQL UNIQUE/immutable provider inbox.
+        // A valid HMAC only allows a durable "requires lookup" entry. It
+        // NEVER changes orders, refunds, stock or financial state.
+        var accountId = Guid.NewGuid();
+        var applicationId = Guid.NewGuid();
+        var transactionId = Guid.NewGuid();
+        const string mockSecret = "f483-test-only-no-merchant-secret";
+        string Body(bool productive) => $"""
+            {"IdCuenta":"{{accountId}}","IdTransaccion":"{{transactionId}}",
+             "Aplicativo":{"Id":"{{applicationId}}"},"Monto":10.25,
+             "EsProductiva":{{productive.ToString().ToLowerInvariant()}},
+             "ResultadoTransaccion":"ExitosaAprobada"}
+            """;
+        static byte[] Bytes(string body) => System.Text.Encoding.UTF8.GetBytes(body);
+        static string Signature(byte[] bytes) => Convert.ToHexString(
+            System.Security.Cryptography.HMACSHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(mockSecret), bytes));
+        var normal = Bytes(Body(true));
+        var signature = Signature(normal);
+        var inbox = new MarketplaceERP.Finance.Services.WompiSvWebhookInbox(finance);
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.NuevoRequiereConsulta,
+            await inbox.RegistrarAsync(normal, signature, mockSecret,
+                accountId, applicationId, transactionId, 10.25m));
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.RepetidoSinMutacion,
+            await inbox.RegistrarAsync(normal, signature, mockSecret,
+                accountId, applicationId, transactionId, 10.25m));
+        var altered = Bytes(Body(true) + "\n");
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.ConflictoBloqueado,
+            await inbox.RegistrarAsync(altered, Signature(altered), mockSecret,
+                accountId, applicationId, transactionId, 10.25m));
+        var sandbox = Bytes(Body(false));
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.SandboxSinCargo,
+            await inbox.RegistrarAsync(sandbox, Signature(sandbox), mockSecret,
+                accountId, applicationId, transactionId, 10.25m));
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.Rechazado,
+            await inbox.RegistrarAsync(normal, new string('0', 64), mockSecret,
+                accountId, applicationId, transactionId, 10.25m));
+        await using (var sql = new NpgsqlConnection(_ephemeralConnection))
+        {
+            await sql.OpenAsync();
+            await using var countInbox = new NpgsqlCommand(
+                "SELECT count(*) FROM finance.webhooks_pago_inbox", sql);
+            Assert.Equal(1L, (long)(await countInbox.ExecuteScalarAsync())!);
+            await using var mutate = new NpgsqlCommand("""
+                UPDATE finance.webhooks_pago_inbox SET "Estado"='RequiereConsulta'
+                WHERE "TransaccionId"=@id
+                """, sql);
+            mutate.Parameters.AddWithValue("id", transactionId);
+            var blocked = await Assert.ThrowsAsync<PostgresException>(
+                () => mutate.ExecuteNonQueryAsync());
+            Assert.Equal("23514", blocked.SqlState);
+        }
     }
 
     private async Task<string?> CodigoEanEsNullableAsync()
