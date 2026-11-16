@@ -839,12 +839,12 @@ export default function ComprasPage() {
             </div>
 
             {/* Ítem de ejemplo en la PO */}
-            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)', minWidth: 0 }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
                 Ítems de la Orden
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.5rem' }}>
-                <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', minWidth: 0 }}>
+                <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</label>
                   <ProductoPOSelector
                     sku={poForm.items[0]?.sku ?? ''}
@@ -861,7 +861,7 @@ export default function ComprasPage() {
                     }))}
                   />
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cantidad</label>
                   <input
                     type="number"
@@ -875,7 +875,7 @@ export default function ComprasPage() {
                     style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
                   />
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio compra unit. ($)</label>
                   <input
                     type="number"
