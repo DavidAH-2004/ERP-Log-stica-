@@ -13,6 +13,7 @@ import { useToast } from '../../context/ToastContext';
 import { fulfillmentApi, type ConfirmarItemPickingRequest, type EmpacarRequest } from '../../api/fulfillment';
 import type { PickList, Paquete } from '../../types';
 import { OPERADORES_LOGISTICOS } from '../../constants/transportistas';
+import SelectorOrdenRegistrada from '../../components/ui/SelectorOrdenRegistrada';
 
 export default function FulfillmentPage() {
   const [activeTab, setActiveTab] = useState<'picking' | 'packing' | 'despacho'>('picking');
@@ -126,6 +127,10 @@ export default function FulfillmentPage() {
   const pesoVolumetrico = ((packForm.largoCm * packForm.anchoCm * packForm.altoCm) / 5000).toFixed(2);
 
   const handleSavePacking = async () => {
+    if (!packForm.ordenId || !packForm.numeroOrden) {
+      toast.warning('Orden requerida', 'Selecciona una orden con picking completado.');
+      return;
+    }
     setSavingPack(true);
     try {
       const resp = await fulfillmentApi.empacar(packForm.ordenId, packForm);
@@ -170,7 +175,10 @@ export default function FulfillmentPage() {
             Refrescar
           </button>
           <button
-            onClick={() => setPackModalOpen(true)}
+            onClick={() => {
+              setPackForm(f => ({ ...f, ordenId: '', numeroOrden: '' }));
+              setPackModalOpen(true);
+            }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -559,29 +567,20 @@ export default function FulfillmentPage() {
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>ID de Orden (UUID)</label>
-                <input
-                  type="text"
-                  placeholder="UUID de la orden"
-                  value={packForm.ordenId}
-                  onChange={e => setPackForm(f => ({ ...f, ordenId: e.target.value }))}
-                  required
-                  style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>N° de Orden</label>
-                <input
-                  type="text"
-                  placeholder="Ej. ORD-20260918-10042"
-                  value={packForm.numeroOrden}
-                  onChange={e => setPackForm(f => ({ ...f, numeroOrden: e.target.value }))}
-                  required
-                  style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-                />
-              </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                Orden lista para empaque
+              </label>
+              <SelectorOrdenRegistrada
+                modo="empaque"
+                ordenId={packForm.ordenId}
+                numeroOrden={packForm.numeroOrden}
+                disabled={savingPack}
+                onSeleccionar={orden => setPackForm(f => ({ ...f, ordenId: orden.id, numeroOrden: orden.numeroOrden }))}
+              />
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                Solo órdenes en preparación, con picking completado y sin paquete previo.
+              </p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -742,7 +741,7 @@ export default function FulfillmentPage() {
               </button>
               <button
                 type="submit"
-                disabled={savingPack}
+                disabled={savingPack || !packForm.ordenId}
                 style={{
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',

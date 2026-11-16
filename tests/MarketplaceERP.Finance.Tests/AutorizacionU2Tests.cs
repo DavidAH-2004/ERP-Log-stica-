@@ -216,6 +216,8 @@ public class AutorizacionU2Tests
                 action.Name == nameof(ProductosController.Buscar) ||
                 action.Name == nameof(ProductosController.GetById));
             var isProductSellerOp = isProductController && (
+                action.Name == nameof(ProductosController.ProveedoresDisponibles) ||
+                action.Name == nameof(ProductosController.CategoriasDisponibles) ||
                 action.Name == nameof(ProductosController.OpcionesAlta) ||
                 action.Name == nameof(ProductosController.Create) ||
                 action.Name == nameof(ProductosController.Update) ||
@@ -253,8 +255,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // Ninguna autorización queda implícita.
         Assert.Equal(27, controllers.Length);
-        Assert.Equal(93, actions);
-        Assert.Equal(94, routes); // Productos/GetAlertasStock tiene dos alias.
+        Assert.Equal(99, actions);
+        Assert.Equal(100, routes); // Productos/GetAlertasStock tiene dos alias.
     }
 
     [Theory]

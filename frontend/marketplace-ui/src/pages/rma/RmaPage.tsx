@@ -9,8 +9,9 @@ import DataTable from '../../components/ui/DataTable';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
-import { rmaApi, type RegistrarRmaRequest, type DictaminarRmaRequest } from '../../api/rma';
+import { rmaApi, type RegistrarRmaRequest, type DictaminarRmaRequest, type ProductoDevolvible } from '../../api/rma';
 import { wmsApi } from '../../api/wms';
+import SelectorOrdenRegistrada from '../../components/ui/SelectorOrdenRegistrada';
 import type { DevolucionRMA, UbicacionAlmacen } from '../../types';
 
 export default function RmaPage() {
@@ -28,6 +29,32 @@ export default function RmaPage() {
     motivoCliente: '',
   });
   const [savingReg, setSavingReg] = useState(false);
+  const [numeroOrdenRma, setNumeroOrdenRma] = useState('');
+  const [productosElegibles, setProductosElegibles] = useState<ProductoDevolvible[]>([]);
+  const [cargandoProductos, setCargandoProductos] = useState(false);
+  const [errorProductos, setErrorProductos] = useState('');
+
+  const abrirRegistro = () => {
+    setFormRegistrar({ ordenId: '', productoId: '', cantidad: 1, motivoCliente: 'ProductoDefectuoso' });
+    setNumeroOrdenRma('');
+    setProductosElegibles([]);
+    setErrorProductos('');
+    setModalRegistrar(true);
+  };
+
+  useEffect(() => {
+    if (!modalRegistrar || !formRegistrar.ordenId) return;
+    let vigente = true;
+    setCargandoProductos(true);
+    setErrorProductos('');
+    rmaApi.productosDevolvibles(formRegistrar.ordenId)
+      .then(res => { if (vigente) setProductosElegibles(res.items ?? []); })
+      .catch(err => { if (vigente) { setProductosElegibles([]); setErrorProductos(err instanceof Error ? err.message : 'No se pudieron cargar los productos de la orden.'); } })
+      .finally(() => { if (vigente) setCargandoProductos(false); });
+    return () => { vigente = false; };
+  }, [modalRegistrar, formRegistrar.ordenId]);
+
+  const productoSeleccionado = productosElegibles.find(p => p.productoId === formRegistrar.productoId);
 
   // Modal inspeccionar
   const [selectedRma, setSelectedRma] = useState<DevolucionRMA | null>(null);
@@ -98,6 +125,11 @@ export default function RmaPage() {
   };
 
   const handleCrearRMA = async () => {
+    if (!productoSeleccionado || !Number.isInteger(formRegistrar.cantidad) ||
+        formRegistrar.cantidad < 1 || formRegistrar.cantidad > productoSeleccionado.cantidadDisponible) {
+      setErrorProductos('Selecciona un producto de la orden y una cantidad entre 1 y su saldo devolvible.');
+      return;
+    }
     setSavingReg(true);
     setErrorCarga('');
     try {
@@ -163,7 +195,7 @@ export default function RmaPage() {
             Refrescar
           </button>
           <button
-            onClick={() => setModalRegistrar(true)}
+            onClick={abrirRegistro}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -327,7 +359,7 @@ export default function RmaPage() {
         emptyAction={
           <button
             className="btn btn-primary btn-sm"
-            onClick={() => setModalRegistrar(true)}
+            onClick={abrirRegistro}
             style={{ margin: '0 auto' }}
           >
             + Registrar primera RMA
@@ -353,14 +385,20 @@ export default function RmaPage() {
               <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
                 N° de Orden
               </label>
-              <input
-                type="text"
-                placeholder="UUID de la orden"
-                value={formRegistrar.ordenId}
-                onChange={e => setFormRegistrar(f => ({ ...f, ordenId: e.target.value }))}
-                required
-                style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
+              <SelectorOrdenRegistrada
+                modo="devolucion"
+                ordenId={formRegistrar.ordenId}
+                numeroOrden={numeroOrdenRma}
+                disabled={savingReg}
+                onSeleccionar={orden => {
+                  setNumeroOrdenRma(orden.numeroOrden);
+                  setProductosElegibles([]);
+                  setFormRegistrar(f => ({ ...f, ordenId: orden.id, productoId: '', cantidad: 1 }));
+                }}
               />
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                Solo órdenes entregadas registradas en OMS.
+              </p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
@@ -386,9 +424,12 @@ export default function RmaPage() {
                 </label>
                 <input
                   type="number"
-                  step="0.01"
+                  min="1"
+                  max={productoSeleccionado?.cantidadDisponible ?? 1}
+                  step="1"
                   value={formRegistrar.cantidad}
-                  onChange={e => setFormRegistrar(f => ({ ...f, cantidad: parseInt(e.target.value) || 1 }))}
+                  onChange={e => setFormRegistrar(f => ({ ...f, cantidad: Number(e.target.value) || 1 }))}
+                  disabled={!productoSeleccionado || savingReg}
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
                 />
               </div>
@@ -396,15 +437,27 @@ export default function RmaPage() {
 
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
-                ID de Producto (UUID)
+                Producto de la orden
               </label>
-              <textarea
+              <select
                 value={formRegistrar.productoId}
-                onChange={e => setFormRegistrar(f => ({ ...f, productoId: e.target.value }))}
-                rows={3}
+                onChange={e => setFormRegistrar(f => ({ ...f, productoId: e.target.value, cantidad: 1 }))}
+                disabled={!formRegistrar.ordenId || cargandoProductos || savingReg}
                 required
                 style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-              />
+              >
+                <option value="">{cargandoProductos ? 'Cargando productos...' : 'Seleccionar producto vendido'}</option>
+                {productosElegibles.map(p => <option key={p.productoId} value={p.productoId}>
+                  {p.sku} — {p.nombre} (disponible: {p.cantidadDisponible})
+                </option>)}
+              </select>
+              {formRegistrar.ordenId && !cargandoProductos && !errorProductos && productosElegibles.length === 0 && (
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Esta orden no tiene productos con saldo devolvible.</p>
+              )}
+              {errorProductos && <p role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{errorProductos}</p>}
+              {productoSeleccionado && <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Máximo devolvible: {productoSeleccionado.cantidadDisponible} unidades.
+              </p>}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
@@ -424,7 +477,7 @@ export default function RmaPage() {
               </button>
               <button
                 type="submit"
-                disabled={savingReg}
+                disabled={savingReg || !productoSeleccionado || !formRegistrar.motivoCliente || cargandoProductos}
                 style={{
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',

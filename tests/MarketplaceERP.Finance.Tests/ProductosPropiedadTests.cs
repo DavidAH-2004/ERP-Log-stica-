@@ -448,7 +448,7 @@ public class ProductosPropiedadTests
         // Admin puede actualizar cualquier producto sin importar el VendedorId
         var updateRequest = new ActualizarProductoRequest(
             "SKU-ADMIN-TEST", "Nombre Actualizado por Admin", "Desc", "Tecnología", "General",
-            120m, 100m, 10, "Proveedor", "El Salvador", 1m, "10x10x10", "Unidad", "Activo", true);
+            120m, 100m, 10, "Proveedor Test", "El Salvador", 1m, "10x10x10", "Unidad", "Activo", true);
         var updateResult = await controllerAdmin.Update(prod.Id, updateRequest);
         Assert.IsType<OkObjectResult>(updateResult);
 

@@ -92,6 +92,13 @@ public class ProductosHttpAislamientoTests
             {
                 Id = fixture.CategoryA, Nombre = "Tecnología"
             });
+            // El alta HTTP legitima requiere proveedor real y activo en Core.
+            // Conservar el nombre privado de los productos existentes para comprobar aislamiento.
+            core.Proveedores.Add(new Proveedor
+            {
+                Id = Guid.NewGuid(), NombreComercial = "Proveedor de prueba",
+                RazonSocial = "Proveedor QA de pruebas", Activo = true
+            });
             await core.SaveChangesAsync();
             db.Productos.AddRange(
                 fixture.Product(fixture.ProductA, fixture.SellerA, "HTTP-OWN-A", "Laptop propia", true, null),
