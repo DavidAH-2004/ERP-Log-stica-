@@ -41,7 +41,7 @@ for(const [key,value] of [
 // Known *partial* public inventory of actual infrastructure: mismatched Render
 // commit and historical branch MUST be NO_GO even when other fields are true.
 const observed={
-  ...pass, mainSha:'8325ccec0b6265b33489d50c26f029be3d1d5d2a',
+  ...pass, mainSha:'8325ccec0bee1eaf30511f4c190804fcb073c769',
   renderLiveSha:'77e9a16ea2b9d7d7cdd3c83c65bf9bb1b4e81d1d',
   renderBranch:'integracion/main-reconciliacion-20261102',
   vercelProductionSha:'b'.repeat(40),vercelProductionBranch:'unknown'
