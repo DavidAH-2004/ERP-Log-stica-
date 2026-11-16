@@ -176,7 +176,8 @@ public sealed class ProductosOpcionesAltaQaTests
             Id = Guid.NewGuid(), Sku = sku, Nombre = "Producto F418",
             CategoriaNombre = categoria.Nombre, CategoriaId = categoria.Id,
             VendedorId = vendedor, CodigoEAN = ean, PrecioB2C = 30m,
-            PrecioB2B = 22m, Moneda = "USD", EstadoProducto = "Activo"
+            PrecioB2B = 22m, Moneda = "USD", EstadoProducto = "Activo",
+            ProveedorNombre = "QA"
         };
 
         Assert.IsType<BadRequestObjectResult>(await vendedorController.Create(
@@ -219,7 +220,7 @@ public sealed class ProductosOpcionesAltaQaTests
             CategoriaNombre = category.Nombre, CategoriaId = category.Id,
             VendedorId = seller, CodigoEAN = "4006381333931",
             PrecioB2C = 30m, PrecioB2B = 22m,
-            Moneda = "USD", EstadoProducto = "Activo"
+            Moneda = "USD", EstadoProducto = "Activo", ProveedorNombre = "QA"
         };
 
         Assert.IsType<CreatedAtActionResult>(await vendedor.Create(Nuevo("F419-FIRST")));
@@ -247,9 +248,10 @@ public sealed class ProductosOpcionesAltaQaTests
         {
             Id = Guid.NewGuid(), Sku = "F427-ORIGINAL",
             Nombre = "Producto histórico", CategoriaNombre = "Tecnología",
-            CategoriaId = Guid.NewGuid(), VendedorId = vendedor,
+            CategoriaId = core.Categorias.Single(c => c.Nombre == "Tecnología").Id,
+            VendedorId = vendedor,
             CodigoEAN = "4006381333931", PrecioB2C = 20m,
-            PrecioB2B = 15m, EstadoProducto = "Activo"
+            PrecioB2B = 15m, EstadoProducto = "Activo", ProveedorNombre = "QA"
         };
         catalog.Productos.Add(producto);
         await catalog.SaveChangesAsync();
@@ -284,14 +286,15 @@ public sealed class ProductosOpcionesAltaQaTests
         {
             Id = Guid.NewGuid(), Sku = "F427-ORIGINAL",
             Nombre = "Producto histórico", CategoriaNombre = "Tecnología",
-            CategoriaId = Guid.NewGuid(), VendedorId = vendedor,
+            CategoriaId = core.Categorias.Single(c => c.Nombre == "Tecnología").Id,
+            VendedorId = vendedor,
             CodigoEAN = "4006381333931", PrecioB2C = 20m,
-            PrecioB2B = 15m, EstadoProducto = "Activo"
+            PrecioB2B = 15m, EstadoProducto = "Activo", ProveedorNombre = "QA"
         };
         catalog.Productos.Add(producto);
         await catalog.SaveChangesAsync();
         catalog.ChangeTracker.Clear();
-        var api = Controller(catalog, "Admin", null);
+        var api = Controller(catalog, "Admin", null, core);
         Assert.IsType<OkObjectResult>(
             await api.Update(producto.Id, F427Peticion(eanSolicitado, incluirEan)));
         catalog.ChangeTracker.Clear();
@@ -329,7 +332,7 @@ public sealed class ProductosOpcionesAltaQaTests
         var request = new ActualizarProductoRequest(
             "F427-ORIGINAL", "Producto editado", "Descripción QA",
             "Tecnología", "General", 99m, 80m, 3,
-            "Proveedor QA", "El Salvador", 1m, "10x10x10",
+            "QA", "El Salvador", 1m, "10x10x10",
             "Unidad", "Activo", true);
         return incluirEan
             ? request with { CodigoEAN = JsonSerializer.SerializeToElement(ean) }
