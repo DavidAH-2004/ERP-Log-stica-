@@ -3,6 +3,7 @@
  * Todos los derechos reservados © 2026
  */
 
+import { comprasArchivosApi } from '../../api/comprasArchivos';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ShoppingCart, FileText, CheckCircle2, AlertTriangle, Plus, RefreshCw, Send, ShieldCheck, PackageCheck } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
@@ -213,6 +214,22 @@ export default function ComprasPage() {
     } finally {
       creandoPo.current = false;
       setSavingPo(false);
+    }
+  };
+
+  const descargarArchivoPO = async (poId: string, numero: string) => {
+    try {
+      const pdf = await comprasArchivosApi.pdf(poId);
+      const blobUrl = URL.createObjectURL(pdf);
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = numero + '.pdf';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+    } catch (error) {
+      toast.error('No se pudo descargar el PDF', error instanceof Error ? error.message : 'Archivo no disponible.');
     }
   };
 
@@ -551,7 +568,13 @@ export default function ComprasPage() {
               header: 'Acciones',
               accessor: 'id',
               render: (row) => (
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => void descargarArchivoPO(row.id, row.numeroPO)}
+                    style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.6rem', background: 'var(--bg-surface)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.75rem' }}
+                  >
+                    Descargar PDF
+                  </button>
                   {row.estado === 'Borrador' && (
                     <button
                       onClick={() => handleEnviarPO(row.id)}

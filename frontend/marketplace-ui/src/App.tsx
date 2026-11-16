@@ -20,6 +20,7 @@ const WmsPage = lazy(() => import('./pages/wms/WmsPage'));
 const FulfillmentPage = lazy(() => import('./pages/fulfillment/FulfillmentPage'));
 const RmaPage = lazy(() => import('./pages/rma/RmaPage'));
 const ComprasPage = lazy(() => import('./pages/compras/ComprasPage'));
+const ComprasArchivosPage = lazy(() => import('./pages/compras/ComprasArchivosPage'));
 const ContabilidadPage = lazy(() => import('./pages/contabilidad/ContabilidadPage'));
 const LiquidacionesPage = lazy(() => import('./pages/liquidaciones/LiquidacionesPage'));
 const ProductosPage = lazy(() => import('./pages/productos/ProductosPage'));
@@ -135,6 +136,7 @@ function AppRoutes() {
           <Route path="fulfillment" element={<RoleRouteGuard allowedRoles={['Admin']}><FulfillmentPage /></RoleRouteGuard>} />
           <Route path="rma" element={<RoleRouteGuard allowedRoles={['Admin']}><RmaPage /></RoleRouteGuard>} />
           <Route path="compras" element={<RoleRouteGuard allowedRoles={['Admin']}><ComprasPage /></RoleRouteGuard>} />
+          <Route path="compras-archivos" element={<RoleRouteGuard allowedRoles={['Admin']}><ComprasArchivosPage /></RoleRouteGuard>} />
           <Route path="contabilidad" element={<RoleRouteGuard allowedRoles={['Admin']}><ContabilidadPage /></RoleRouteGuard>} />
           <Route path="liquidaciones" element={<RoleRouteGuard allowedRoles={['Admin']}><LiquidacionesPage /></RoleRouteGuard>} />
           <Route path="productos" element={<RoleRouteGuard allowedRoles={['Admin', 'Vendedor']}><ProductosPage /></RoleRouteGuard>} />

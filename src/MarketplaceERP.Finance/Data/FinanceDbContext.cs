@@ -29,6 +29,7 @@ public class FinanceDbContext : DbContext
 
     // Procurement / Compras
     public DbSet<OrdenCompra> OrdenesCompra => Set<OrdenCompra>();
+    public DbSet<ArchivoCompra> ArchivosCompras => Set<ArchivoCompra>();
     public DbSet<ItemOrdenCompra> ItemsOrdenCompra => Set<ItemOrdenCompra>();
     public DbSet<FacturaProveedor> FacturasProveedor => Set<FacturaProveedor>();
     public DbSet<ItemFacturaProveedor> ItemsFacturaProveedor => Set<ItemFacturaProveedor>();
@@ -265,6 +266,28 @@ public class FinanceDbContext : DbContext
         });
 
         // ── OrdenCompra (PO) ──────────────────────────────────────────────────
+        modelBuilder.Entity<ArchivoCompra>(entity =>
+        {
+            entity.ToTable("archivos_compras");
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Id).ValueGeneratedNever();
+            entity.Property(a => a.NumeroPO).HasMaxLength(50).IsRequired();
+            entity.Property(a => a.ProveedorNombre).HasMaxLength(200).IsRequired();
+            entity.Property(a => a.ProveedorNit).HasMaxLength(40).IsRequired();
+            entity.Property(a => a.Contacto).HasMaxLength(200).IsRequired();
+            entity.Property(a => a.Correo).HasMaxLength(254).IsRequired();
+            entity.Property(a => a.Telefono).HasMaxLength(100).IsRequired();
+            entity.Property(a => a.Estado).HasMaxLength(30).IsRequired();
+            entity.Property(a => a.MontoTotal).HasPrecision(18, 2);
+            entity.Property(a => a.PdfContenido).HasColumnType("bytea").IsRequired();
+            entity.Property(a => a.PdfSha256).HasMaxLength(64).IsRequired();
+            entity.HasIndex(a => a.OrdenCompraId).IsUnique();
+            entity.HasIndex(a => a.ProveedorId);
+            entity.HasIndex(a => a.FechaCreacionUtc);
+            entity.HasOne(a => a.OrdenCompra).WithOne().HasForeignKey<ArchivoCompra>(a => a.OrdenCompraId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
         modelBuilder.Entity<OrdenCompra>(entity =>
         {
             entity.ToTable("ordenes_compra");
