@@ -346,7 +346,9 @@ jobs:
 
       - name: Purchase order multi-item and invoice browser regression
         working-directory: frontend/marketplace-ui
-        run: node tests/compras-multi-items.mjs
+        run: |
+          npm run build
+          node tests/compras-multi-items.mjs
 
       # F355: isolated HTTPS Chromium exercises the opt-in BFF/cookie path.
       # VITE_BFF_AUTH_MODE is scoped to this step ONLY; production deployments
