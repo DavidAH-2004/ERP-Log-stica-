@@ -15,7 +15,7 @@ export interface ProveedorLogistico {
   telefono: string;
   direccion: string;
   plazoCreditoDias: number;
-  otifHistorico: number;
+  otifHistorico: number | null;
   productosCatalogo: number;
   productosBajoMinimo: number;
   ordenesCompraAbiertas: number;
@@ -30,7 +30,33 @@ export interface ProveedoresLogisticaResponse {
   items: ProveedorLogistico[];
 }
 
+export interface RegistrarProveedorRequest {
+  nombreComercial: string;
+  razonSocial: string;
+  nit: string;
+  nrc: string;
+  categoriaSuministro: string;
+  contactoPrincipal: string;
+  email: string;
+  telefono: string;
+  direccion: string;
+  condicionesPago: 'Contado' | 'Credito';
+  diasCredito: number;
+  activo: boolean;
+}
+
+export interface ProveedorCreado {
+  id: string;
+  nombreComercial: string;
+  razonSocial: string;
+  plazoCreditoDias: number;
+  activo: boolean;
+  otifHistorico: number | null;
+}
+
 export const proveedoresApi = {
+  crear: (proveedor: RegistrarProveedorRequest) =>
+    apiClient.post<ProveedorCreado>('/api/proveedores', proveedor),
   listar: (buscar?: string) => {
     const q = buscar?.trim() ? `?buscar=${encodeURIComponent(buscar.trim())}` : '';
     return apiClient.get<ProveedoresLogisticaResponse>(`/api/proveedores/logistica${q}`);

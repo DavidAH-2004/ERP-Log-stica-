@@ -4,10 +4,11 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Building2, Mail, Phone, RefreshCw, Search, ShoppingBag, Truck } from 'lucide-react';
+import { Building2, Mail, Phone, Plus, RefreshCw, Search, ShoppingBag, Truck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import AlertBanner from '../../components/ui/AlertBanner';
 import DataTable, { type Column } from '../../components/ui/DataTable';
+import NuevoProveedorModal from './NuevoProveedorModal';
 import { proveedoresApi, type ProveedorLogistico, type ProveedoresLogisticaResponse } from '../../api/proveedores';
 
 export default function ProveedoresPage() {
@@ -16,6 +17,7 @@ export default function ProveedoresPage() {
   const [buscar, setBuscar] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [nuevoOpen, setNuevoOpen] = useState(false);
 
   const cargar = async () => {
     setLoading(true);
@@ -59,7 +61,7 @@ export default function ProveedoresPage() {
       header: 'OTIF / Crédito',
       render: row => (
         <div>
-          <strong>{row.otifHistorico.toFixed(1)}%</strong>
+          <strong>{row.otifHistorico === null ? 'Sin historial' : row.otifHistorico.toFixed(1) + '%'}</strong>
           <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
             {row.plazoCreditoDias > 0 ? `${row.plazoCreditoDias} días` : 'Contado'}
           </div>
@@ -114,6 +116,9 @@ export default function ProveedoresPage() {
           <button className="btn btn-secondary" onClick={() => navigate('/compras')}>
             <ShoppingBag size={13} /> Ir a Compras
           </button>
+          <button className="btn btn-primary" onClick={() => setNuevoOpen(true)}>
+            <Plus size={13} /> Nuevo Proveedor
+          </button>
           <button className="btn btn-secondary" onClick={cargar} disabled={loading}>
             <RefreshCw size={13} /> Actualizar
           </button>
@@ -166,6 +171,15 @@ export default function ProveedoresPage() {
         pageSize={10}
         emptyMessage="No hay proveedores activos en el maestro corporativo"
       />
+      {nuevoOpen && (
+        <NuevoProveedorModal
+          onClose={() => setNuevoOpen(false)}
+          onCreated={async () => {
+            setNuevoOpen(false);
+            await cargar();
+          }}
+        />
+      )}
     </div>
   );
 }

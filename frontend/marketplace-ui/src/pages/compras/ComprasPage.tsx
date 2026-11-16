@@ -14,6 +14,7 @@ import { useToast } from '../../context/ToastContext';
 import { comprasApi, type CrearPORequest, type RegistrarFacturaRequest, type Validar3WayMatchRequest, type RecibirMercaderiaRequest } from '../../api/compras';
 import { wmsApi } from '../../api/wms';
 import { proveedoresApi, type ProveedorLogistico } from '../../api/proveedores';
+import NuevoProveedorModal from '../proveedores/NuevoProveedorModal';
 import ItemsPOEditor, { itemPOValido, totalesPO } from './ItemsPOEditor';
 import type { OrdenCompra, FacturaProveedor, MatchTridireccional, UbicacionAlmacen } from '../../types';
 
@@ -50,6 +51,7 @@ export default function ComprasPage() {
   const creandoPo = useRef(false);
   const [proveedores, setProveedores] = useState<ProveedorLogistico[]>([]);
   const [loadingProveedores, setLoadingProveedores] = useState(true);
+  const [nuevoProveedorOpen, setNuevoProveedorOpen] = useState(false);
 
   // Registrar Factura Modal
   const [facturaModalOpen, setFacturaModalOpen] = useState(false);
@@ -800,9 +802,12 @@ export default function ComprasPage() {
           >
             <fieldset disabled={savingPo} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
-                Proveedor del maestro corporativo
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Proveedor del maestro corporativo</label>
+                <button type="button" className="btn btn-secondary" onClick={() => setNuevoProveedorOpen(true)}>
+                  <Plus size={13} /> Nuevo Proveedor
+                </button>
+              </div>
               <select
                 value={poForm.proveedorId}
                 onChange={e => {
@@ -831,14 +836,14 @@ export default function ComprasPage() {
                 <option value="">{loadingProveedores ? 'Cargando proveedores…' : 'Seleccionar proveedor…'}</option>
                 {proveedores.map(proveedor => (
                   <option key={proveedor.id} value={proveedor.id}>
-                    {proveedor.nombreComercial} — OTIF {proveedor.otifHistorico.toFixed(1)}%
+                    {proveedor.nombreComercial} — OTIF {proveedor.otifHistorico === null ? 'Sin historial' : proveedor.otifHistorico.toFixed(1) + '%'}
                   </option>
                 ))}
               </select>
               {proveedorSeleccionado && (
                 <div style={{ marginTop: 6, padding: '0.55rem 0.65rem', borderRadius: 6, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   <strong style={{ color: 'var(--text-primary)' }}>{proveedorSeleccionado.razonSocial}</strong><br />
-                  OTIF {proveedorSeleccionado.otifHistorico.toFixed(1)}% · {proveedorSeleccionado.plazoCreditoDias > 0 ? `${proveedorSeleccionado.plazoCreditoDias} días de crédito` : 'Contado'}
+                  OTIF {proveedorSeleccionado.otifHistorico === null ? 'Sin historial' : proveedorSeleccionado.otifHistorico.toFixed(1) + '%'} · {proveedorSeleccionado.plazoCreditoDias > 0 ? `${proveedorSeleccionado.plazoCreditoDias} días de crédito` : 'Contado'}
                   {proveedorSeleccionado.contactoPrincipal && <> · Contacto: {proveedorSeleccionado.contactoPrincipal}</>}
                 </div>
               )}
@@ -928,6 +933,35 @@ export default function ComprasPage() {
             </fieldset>
           </form>
         </Modal>
+      )}
+
+      {nuevoProveedorOpen && (
+        <NuevoProveedorModal
+          onClose={() => setNuevoProveedorOpen(false)}
+          onCreated={async creado => {
+            setNuevoProveedorOpen(false);
+            try {
+              const respuesta = await proveedoresApi.listar();
+              const disponibles = respuesta.items ?? [];
+              setProveedores(disponibles);
+              const nuevo = disponibles.find(p => p.id === creado.id);
+              if (nuevo) {
+                setPoForm(form => ({
+                  ...form,
+                  proveedorId: nuevo.id,
+                  proveedorNombre: nuevo.razonSocial || nuevo.nombreComercial,
+                  terminosPago: nuevo.plazoCreditoDias > 0
+                    ? 'Crédito ' + nuevo.plazoCreditoDias + ' días'
+                    : 'Contado',
+                }));
+              } else {
+                toast.warning('Proveedor inactivo', 'El registro se guardó, pero debe estar activo para utilizarlo en Compras.');
+              }
+            } catch {
+              toast.warning('Proveedor guardado', 'No se actualizó el selector. Actualiza Compras antes de crear la orden.');
+            }
+          }}
+        />
       )}
 
       {/* Modal Recepción Inbound */}
