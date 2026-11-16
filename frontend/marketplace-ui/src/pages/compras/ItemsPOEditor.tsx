@@ -62,10 +62,10 @@ export default function ItemsPOEditor({ items, onChange, onPendingChange, disabl
   const dinero = (valor: number) => valor.toLocaleString('es-SV', { style: 'currency', currency: 'USD' });
   const estilo = { width: '100%', padding: '0.5rem', borderRadius: 6, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' as const };
 
-  return <section aria-label="Ítems de la Orden" style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 8 }}>
+  return <section aria-label="Ítems de la Orden" style={{ width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 8 }}>
     <h3 style={{ margin: '0 0 0.75rem', fontSize: '1rem' }}>Ítems de la Orden ({items.length}/10)</h3>
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.5rem' }}>
-      <div><span>Producto</span><ProductoPOSelector sku={draft.sku} nombre={draft.nombreProducto} disabled={disabled}
+    <div style={{ display: 'grid', width: '100%', minWidth: 0, gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '0.5rem' }}>
+      <div style={{ minWidth: 0 }}><span>Producto</span><ProductoPOSelector sku={draft.sku} nombre={draft.nombreProducto} disabled={disabled}
         onSeleccionar={producto => setDraft(item => ({ ...item, sku: producto.sku, nombreProducto: producto.nombre, precioUnitario: producto.precioCompraReferencia ?? 0 }))} /></div>
       <label>Cantidad<input aria-label="Cantidad del producto" type="number" min="1" step="1" value={draft.cantidad || ''}
         disabled={disabled} onChange={e => setDraft(item => ({ ...item, cantidad: Number(e.target.value) }))} style={estilo} /></label>

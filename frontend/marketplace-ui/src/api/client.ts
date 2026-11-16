@@ -154,6 +154,27 @@ async function request<T>(
   }
 }
 
+/** Authenticated binary download that uses the same BFF/legacy session mode as JSON APIs. */
+export async function getAuthenticatedBlob(path: string): Promise<Blob> {
+  const token = cookieBffMode ? null : localStorage.getItem('erp_token');
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: 'same-origin',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (response.status === 401) {
+    onUnauthorized?.();
+    throw new ApiError(401, 'Inicia sesión nuevamente para acceder al PDF.');
+  }
+  if (response.status === 403) {
+    onForbidden?.('No tienes permisos para acceder a este PDF.');
+    throw new ApiError(403, 'No tienes permisos para acceder al PDF.');
+  }
+  if (!response.ok) throw new ApiError(response.status, 'No fue posible recuperar el PDF de la orden.');
+  if (!response.headers.get('content-type')?.toLowerCase().includes('application/pdf'))
+    throw new ApiError(502, 'La respuesta del servidor no es un documento PDF.');
+  return response.blob();
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, headers?: HeadersInit) =>

@@ -269,9 +269,9 @@ public class AutorizacionU2Tests
         // OMS evaluación: +1 controlador y +2 rutas exclusivas de Admin.
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
-        Assert.Equal(30, controllers.Length);
-        Assert.Equal(116, actions); // F499: includes six PR #72 selector endpoints and F360 logout.
-        Assert.Equal(117, routes); // One extra Productos/GetAlertasStock alias.
+        Assert.Equal(31, controllers.Length);
+        Assert.Equal(119, actions); // F499: includes six PR #72 selector endpoints and F360 logout.
+        Assert.Equal(120, routes); // One extra Productos/GetAlertasStock alias.
     }
 
     [Theory]

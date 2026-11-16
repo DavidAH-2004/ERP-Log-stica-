@@ -395,3 +395,36 @@ test('Vercel protege scripts y evita embedding y APIs externas', () => {
   assert.ok(header('Permissions-Policy').includes('microphone=()'));
   assert.ok(header('Permissions-Policy').includes('geolocation=()'));
 });
+
+test('F615: Vercel Preview transmite PDF binario intacto con MIME seguro y sin cookies del backend', async () => {
+  const expected = Uint8Array.from([37, 80, 68, 70, 45, 49, 46, 55, 10, 0, 255, 42, 13]);
+  const seen = [];
+  await withProxyEnvironment('preview', 'https://marketplaceerp-api-staging.onrender.com',
+    async (url, options) => {
+      seen.push({ url: url.toString(), headers: options.headers });
+      return new Response(expected, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'inline; filename="PO-QA.pdf"',
+          'Set-Cookie': 'internal=should-not-be-forwarded',
+          'Cache-Control': 'public, max-age=3600',
+        },
+      });
+    }, async proxy => {
+      const response = await proxy(new Request(
+        'https://preview.vercel.app/api/compras/archivos/00000000-0000-0000-0000-000000000001/pdf', {
+          headers: { Authorization: 'Bearer mock-admin-jwt', Cookie: 'browser-session=secret' },
+        }));
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), 'application/pdf');
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('set-cookie'), null);
+      assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...expected]);
+    });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].headers.get('authorization'), 'Bearer mock-admin-jwt');
+  assert.equal(seen[0].headers.get('cookie'), null);
+  assert.equal(seen[0].url,
+    'https://marketplaceerp-api-staging.onrender.com/api/compras/archivos/00000000-0000-0000-0000-000000000001/pdf');
+});

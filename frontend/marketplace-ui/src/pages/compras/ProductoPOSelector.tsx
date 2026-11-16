@@ -80,7 +80,7 @@ export default function ProductoPOSelector({ sku, nombre, onSeleccionar, disable
   return (
     <div ref={refContenedor} onKeyDownCapture={event => {
       if (abierto && event.key === 'Escape') { event.stopPropagation(); setAbierto(false); }
-    }} style={{ position: 'relative', minWidth: 0 }}>
+    }} style={{ position: 'relative', width: '100%', maxWidth: '100%', minWidth: 0 }}>
       <button
         type="button"
         aria-expanded={abierto}
@@ -91,9 +91,13 @@ export default function ProductoPOSelector({ sku, nombre, onSeleccionar, disable
         style={{
           ...inputStyle, cursor: disabled ? 'not-allowed' : 'pointer', textAlign: 'left',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+          maxWidth: '100%', minWidth: 0,
         }}
       >
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: sku ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+        <span
+          title={sku ? `${sku} — ${nombre}` : undefined}
+          style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: sku ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+        >
           {sku ? `${sku} — ${nombre}` : 'Seleccionar producto registrado…'}
         </span>
         <ChevronDown size={16} style={{ flexShrink: 0 }} />
@@ -101,6 +105,7 @@ export default function ProductoPOSelector({ sku, nombre, onSeleccionar, disable
       {abierto && (
         <div style={{
           position: 'relative', marginTop: 4, zIndex: 1,
+          width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box',
           background: 'var(--bg-card)', border: '1px solid var(--border)',
           borderRadius: 8, boxShadow: '0 10px 28px rgba(0,0,0,0.24)', padding: 8,
         }}>
@@ -130,7 +135,8 @@ export default function ProductoPOSelector({ sku, nombre, onSeleccionar, disable
             {!cargando && !error && opciones.map(producto => (
               <button key={producto.id} type="button" role="option" aria-selected={producto.sku === sku}
                 onClick={() => { onSeleccionar(producto); setAbierto(false); }}
-                style={{ display: 'block', width: '100%', padding: '0.55rem 0.45rem', textAlign: 'left',
+                style={{ display: 'block', width: '100%', maxWidth: '100%', minWidth: 0, padding: '0.55rem 0.45rem', textAlign: 'left',
+                  boxSizing: 'border-box', overflowWrap: 'anywhere',
                   border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer',
                   background: producto.sku === sku ? 'var(--accent-glow)' : 'transparent', color: 'var(--text-primary)' }}>
                 <strong style={{ fontSize: 12 }}>{producto.sku}</strong>

@@ -105,6 +105,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddCoreServices(builder.Configuration);
 builder.Services.AddCatalogServices(builder.Configuration);
 builder.Services.AddFinanceServices(builder.Configuration, builder.Environment.IsDevelopment());
+builder.Services.AddScoped<MarketplaceERP.API.Services.ComprasArchivoPdfService>();
 builder.Services.AddScoped<MarketplaceERP.API.Services.ReservasExpiracionService>();
 // F402: asignación explícita de EAN, sin normalización automática al iniciar.
 builder.Services.AddScoped<MarketplaceERP.Catalog.Services.CodigoBarrasAsignacionService>();

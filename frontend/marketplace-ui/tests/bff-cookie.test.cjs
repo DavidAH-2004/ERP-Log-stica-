@@ -292,3 +292,40 @@ test('BFF no borra cookies ni confirma logout si API no confirma la revocación'
     assert.equal(hits, 1);
   });
 });
+
+test('F615: BFF HttpOnly reenvía PDF binario solo con JWT del servidor', async () => {
+  const expected = Uint8Array.from([37, 80, 68, 70, 45, 50, 46, 48, 10, 0, 127, 13]);
+  const forwarded = [];
+  await withBff(async (url, options) => {
+    forwarded.push({ url: url.toString(), authorization: options.headers.get('authorization') });
+    if (url.pathname === '/api/auth/login') return goodLogin();
+    return new Response(expected, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Set-Cookie': 'upstream=must-not-leak',
+        'Content-Disposition': 'inline; filename="PO-QA-BFF.pdf"',
+      },
+    });
+  }, async proxy => {
+    const login = await proxy(request('/api/auth/login', 'POST', {
+      origin: previewOrigin, 'content-type': 'application/json',
+    }, { email: 'qa@example.invalid', password: 'test-only' }));
+    assert.equal(login.status, 200);
+    const cookieHeader = cookiesFrom(login).cookieHeader;
+    const document = await proxy(request(
+      '/api/compras/archivos/00000000-0000-0000-0000-000000000001/pdf', 'GET', {
+        cookie: cookieHeader,
+        authorization: 'Bearer attacker-controlled-token',
+      }));
+    assert.equal(document.status, 200);
+    assert.equal(document.headers.get('content-type'), 'application/pdf');
+    assert.equal(document.headers.get('cache-control'), 'no-store');
+    assert.equal(document.headers.get('set-cookie'), null);
+    assert.deepEqual([...new Uint8Array(await document.arrayBuffer())], [...expected]);
+  });
+  assert.equal(forwarded.length, 2);
+  assert.equal(forwarded[1].authorization, 'Bearer ' + jwt);
+  assert.equal(forwarded[1].url,
+    stagingOrigin + '/api/compras/archivos/00000000-0000-0000-0000-000000000001/pdf');
+});

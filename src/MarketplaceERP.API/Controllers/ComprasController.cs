@@ -40,6 +40,7 @@ public class ComprasController : ControllerBase
     private readonly CoreDbContext _coreDb;
     private readonly CatalogDbContext? _catalogDb;
     private readonly ILogger<ComprasController> _logger;
+    private readonly ComprasArchivoPdfService? _archivos;
 
     public ComprasController(
         MarketplaceERP.Finance.Data.FinanceDbContext db,
@@ -48,7 +49,8 @@ public class ComprasController : ControllerBase
         IInventoryService inventory,
         CoreDbContext coreDb,
         ILogger<ComprasController> logger,
-        CatalogDbContext? catalogDb = null)
+        CatalogDbContext? catalogDb = null,
+        ComprasArchivoPdfService? archivos = null)
     {
         _db = db;
         _matching = matching;
@@ -57,6 +59,7 @@ public class ComprasController : ControllerBase
         _coreDb = coreDb;
         _logger = logger;
         _catalogDb = catalogDb;
+        _archivos = archivos;
     }
 
     // ── GET /api/compras/po ───────────────────────────────────────────────────
@@ -303,6 +306,9 @@ public class ComprasController : ControllerBase
         po.MontoTotal = montoTotal;
 
         _db.OrdenesCompra.Add(po);
+        // Same FinanceDbContext transaction: no successfully created PO without PDF.
+        if (_archivos is not null)
+            await _archivos.PrepararAsync(po, proveedor, cancellationToken);
 
         // Aprobar automáticamente si es un borrador enviado
         if (req.EnviarInmediatamente == true)
@@ -327,13 +333,16 @@ public class ComprasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> EnviarPO(Guid id, CancellationToken cancellationToken)
     {
-        var po = await _db.OrdenesCompra.FindAsync([id], cancellationToken);
+        var po = await _db.OrdenesCompra.Include(x => x.Items)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (po == null) return NotFound(new { mensaje = $"PO {id} no encontrada." });
         if (po.Estado != EstadoOrdenCompra.Borrador)
             return BadRequest(new { mensaje = $"Solo una PO en Borrador puede enviarse. Estado actual: {po.Estado}." });
 
         po.Estado = EstadoOrdenCompra.Enviada;
         po.FechaEnvioProveedor = DateTime.UtcNow;
+        if (_archivos is not null)
+            await _archivos.PrepararAsync(po, null, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { po.Id, po.NumeroPO, Estado = po.Estado.ToString(), po.FechaEnvioProveedor });
@@ -529,6 +538,8 @@ public class ComprasController : ControllerBase
                 ? EstadoOrdenCompra.RecibidaCompleta
                 : EstadoOrdenCompra.RecibidaParcial;
             po.FechaRecepcionReal = DateTime.UtcNow;
+            if (_archivos is not null)
+                await _archivos.PrepararAsync(po, null, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
 
             resultados.Add(new
@@ -553,6 +564,8 @@ public class ComprasController : ControllerBase
         if (huboCambios)
             po.FechaRecepcionReal = DateTime.UtcNow;
 
+        if (huboCambios && _archivos is not null)
+            await _archivos.PrepararAsync(po, null, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
@@ -825,8 +838,16 @@ public class ComprasController : ControllerBase
                     cancellationToken))
                     return Conflict(new { mensaje = "La orden ya tiene un asiento de compra registrado." });
 
-                var po = await _db.OrdenesCompra.FindAsync([req.OrdenCompraId], cancellationToken)
+                var po = await _db.OrdenesCompra.Include(x => x.Items)
+                    .FirstOrDefaultAsync(x => x.Id == req.OrdenCompraId, cancellationToken)
                     ?? throw new InvalidOperationException("No se encuentra la orden contabilizable.");
+                // The 3-Way Match may change the PO state. Keep the stored PDF synchronized
+                // in the same Finance transaction as the accounting authorization.
+                if (_archivos is not null)
+                {
+                    await _archivos.PrepararAsync(po, null, cancellationToken);
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
                 var factura = await _db.FacturasProveedor.FindAsync([req.FacturaProveedorId], cancellationToken)
                     ?? throw new InvalidOperationException("No se encuentra la factura contabilizable.");
 
