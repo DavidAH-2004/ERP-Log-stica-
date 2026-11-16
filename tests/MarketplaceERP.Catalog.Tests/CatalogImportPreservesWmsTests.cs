@@ -126,6 +126,36 @@ public class CatalogImportPreservesWmsTests
 
 
     [Fact]
+    public async Task ReimportarVarianteMayusculas_NoCreaOtroSkuNiRotaEan()
+    {
+        var options = new DbContextOptionsBuilder<CatalogDbContext>()
+            .UseInMemoryDatabase($"CatalogSameSku_{Guid.NewGuid():N}")
+            .Options;
+        await using var db = new CatalogDbContext(options);
+        var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+        var vendedor = Guid.NewGuid();
+        var categoria = Guid.NewGuid();
+
+        async Task Importar(string sku)
+        {
+            using var entrada = new MemoryStream(Encoding.UTF8.GetBytes(
+                Header + "\n" + Row(sku, "Electrónica y Tecnología", 10, 2, 25m) + "\n"));
+            var resultado = await service.ImportarCatalogoCsvAsync(entrada, vendedor, categoria);
+            resultado.Exitosos.Should().Be(1);
+            resultado.Errores.Should().Be(0);
+        }
+
+        await Importar("SKU-PRUEBA");
+        var original = await db.Productos.SingleAsync();
+        var idOriginal = original.Id;
+        await Importar("sku-prueba");
+        var productos = await db.Productos.ToListAsync();
+        productos.Should().ContainSingle();
+        productos[0].Id.Should().Be(idOriginal);
+        productos[0].Sku.Should().Be("SKU-PRUEBA");
+    }
+
+    [Fact]
     public async Task Importacion_EncabezadoDesordenado_RechazaArchivoAntesDeEscribir()
     {
         var options = new DbContextOptionsBuilder<CatalogDbContext>()

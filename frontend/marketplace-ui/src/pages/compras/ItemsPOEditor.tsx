@@ -72,7 +72,6 @@ export default function ItemsPOEditor({ items, onChange, onPendingChange, disabl
       <label>Precio unitario ($)<input aria-label="Precio unitario del producto" type="number" min="0.01" step="0.01" value={draft.precioUnitario || ''}
         disabled={disabled} onChange={e => setDraft(item => ({ ...item, precioUnitario: Number(e.target.value) }))} style={estilo} /></label>
     </div>
-    <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>El precio sugerido corresponde a la última compra. Puedes modificarlo para esta orden.</p>
     <div style={{ display: 'flex', gap: 8 }}>
       <button type="button" className="btn btn-secondary" disabled={disabled || (items.length >= 10 && editando === null)} onClick={agregar}>
         {editando === null ? '+ Agregar a la lista' : 'Guardar ítem'}
@@ -81,7 +80,7 @@ export default function ItemsPOEditor({ items, onChange, onPendingChange, disabl
     </div>
     {error && <p role="alert" style={{ color: 'var(--red)' }}>{error}</p>}
     {items.length === 10 && <p role="status">Límite alcanzado: 10 productos por orden. Puedes editar o eliminar ítems.</p>}
-    {items.length === 0 ? <p>Agrega al menos un producto a la lista para crear la orden.</p> : <div style={{ overflow: 'auto', maxHeight: 260, marginTop: 12 }}>
+    {items.length > 0 && <div style={{ overflow: 'auto', maxHeight: 260, marginTop: 12 }}>
       <table aria-label="Productos de la orden" style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
         <thead><tr>{['Producto', 'Cantidad', 'Precio', 'Subtotal', 'Acciones'].map(t => <th key={t} style={{ padding: 6, position: 'sticky', top: 0, background: 'var(--bg-surface)' }}>{t}</th>)}</tr></thead>
         <tbody>{items.map((item, index) => <tr key={item.sku} style={{ borderTop: '1px solid var(--border)' }}>
@@ -96,6 +95,5 @@ export default function ItemsPOEditor({ items, onChange, onPendingChange, disabl
       <div>Subtotal: {dinero(totales.subtotal)} · IVA (13%): {dinero(totales.iva)}</div>
       <strong>Total PO (con IVA): {dinero(totales.total)}</strong>
     </div>
-    {pendiente && <p style={{ fontSize: 12 }}>Agrega o guarda el ítem pendiente, o cancélalo, antes de crear la orden.</p>}
   </section>;
 }

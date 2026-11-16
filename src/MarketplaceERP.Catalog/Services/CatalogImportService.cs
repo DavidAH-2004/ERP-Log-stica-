@@ -265,9 +265,18 @@ public class CatalogImportService : ICatalogImportService
 
                 // Localizar primero el producto. Importar datos maestros NUNCA debe
                 // mover stock físico existente ni marcar ubicaciones nuevas ocupadas.
-                var producto = await _dbContext.Productos
+                // Coincidir también con variantes históricas de mayúsculas y
+                // espacios. Nunca generar un segundo SKU con la misma identidad.
+                // Dos coincidencias históricas son ambiguas: no alterar ninguna.
+                var skuComparacion = sku.ToLowerInvariant();
+                var coincidencias = await _dbContext.Productos
                     .Include(p => p.Stocks)
-                    .FirstOrDefaultAsync(p => p.Sku == sku, cancellationToken);
+                    .Where(p => p.Sku.Trim().ToLower() == skuComparacion)
+                    .Take(2).ToListAsync(cancellationToken);
+                if (coincidencias.Count > 1)
+                    throw new InvalidOperationException(
+                        $"SKU histórico ambiguo en catálogo: {sku}. Se requiere revisión manual.");
+                var producto = coincidencias.SingleOrDefault();
 
                 // Solo se genera ubicación inicial cuando aún no existe saldo WMS.
                 // Un traslado posterior debe pasar por InventoryService y quedar auditado.

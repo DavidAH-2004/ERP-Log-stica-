@@ -13,6 +13,7 @@ using MarketplaceERP.Core.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace MarketplaceERP.API.Controllers;
 
@@ -481,6 +482,70 @@ public class ProductosController : ControllerBase
         return Ok(new { vendedores, categorias });
     }
 
+    // El catálogo maestro tiene SKU único GLOBAL (no por vendedor).
+    // Esta consulta no autoriza una escritura: POST/PUT vuelven a comprobar
+    // dentro de una transacción compartida con la importación CSV.
+    [HttpGet("sku-disponible")]
+    [Authorize(Roles = "Admin,Vendedor")]
+    public async Task<IActionResult> SkuDisponible(
+        [FromQuery] string? sku, [FromQuery] Guid? excluirId = null)
+    {
+        var skuNormalizado = sku?.Trim();
+        if (!SkuValido(skuNormalizado))
+            return BadRequest(new { mensaje = "Ingresa un código SKU de entre 1 y 50 caracteres." });
+
+        if (excluirId.HasValue)
+        {
+            var propietario = await _dbContext.Productos.AsNoTracking()
+                .Where(p => p.Id == excluirId.Value)
+                .Select(p => new { p.VendedorId }).FirstOrDefaultAsync();
+            if (propietario is null) return NotFound(new { mensaje = "Producto no encontrado." });
+            if (!User.IsInRole("Admin") && propietario.VendedorId != ObtenerVendedorIdActual())
+                return Forbid();
+        }
+
+        return Ok(new { disponible = !await ExisteOtroSkuAsync(skuNormalizado!, excluirId) });
+    }
+
+    private static bool SkuValido(string? sku) =>
+        !string.IsNullOrWhiteSpace(sku) && sku.Length <= 50;
+
+    private async Task<bool> ExisteOtroSkuAsync(string sku, Guid? excluirId = null)
+    {
+        var productos = _dbContext.Productos.AsNoTracking();
+        if (excluirId.HasValue)
+            productos = productos.Where(p => p.Id != excluirId.Value);
+        // Comparar todos los productos, incluidos los no publicados e históricos.
+        var normalizado = sku.Trim().ToLowerInvariant();
+        return await productos.AnyAsync(p => p.Sku.Trim().ToLower() == normalizado);
+    }
+
+    // CatalogImportService ya emplea este candado. Compartirlo impide
+    // carreras entre POST, PUT y cargas CSV sin cambiar el esquema histórico.
+    private async Task<IDbContextTransaction?> BloquearEscrituraSkuAsync()
+    {
+        if (_dbContext.Database.ProviderName != "Npgsql.EntityFrameworkCore.PostgreSQL")
+            return null; // Proveedores InMemory utilizados en pruebas unitarias.
+
+        var transaccion = await _dbContext.Database.BeginTransactionAsync();
+        try
+        {
+            await _dbContext.Database.ExecuteSqlRawAsync(
+                "SELECT pg_advisory_xact_lock(6173152, 20261108)");
+            return transaccion;
+        }
+        catch
+        {
+            await transaccion.DisposeAsync();
+            throw;
+        }
+    }
+
+    private static bool ConflictoIndiceSku(DbUpdateException ex) =>
+        ex.InnerException is Npgsql.PostgresException pg &&
+        pg.SqlState == "23505" &&
+        pg.ConstraintName is "IX_productos_Sku" or "UX_productos_Sku";
+
     [HttpPost]
     [Authorize(Roles = "Admin,Vendedor")]
     [ProducesResponseType(typeof(Producto), StatusCodes.Status201Created)]
@@ -490,6 +555,9 @@ public class ProductosController : ControllerBase
     {
         if (producto is null)
             return BadRequest(new { mensaje = "El producto no puede ser nulo." });
+        var skuSolicitado = producto.Sku?.Trim();
+        if (!SkuValido(skuSolicitado))
+            return BadRequest(new { mensaje = "Ingresa un código SKU de entre 1 y 50 caracteres." });
 
         // F418: el alta interactiva no puede registrar códigos no escaneables.
         // Los EAN del prefijo interno 20 deben emitirse por el servicio Admin
@@ -574,7 +642,7 @@ public class ProductosController : ControllerBase
         var nuevoProducto = new Producto
         {
             Id = Guid.NewGuid(),
-            Sku = producto.Sku,
+            Sku = skuSolicitado!,
             Nombre = producto.Nombre,
             Descripcion = producto.Descripcion,
             CategoriaNombre = producto.CategoriaNombre,
@@ -598,10 +666,25 @@ public class ProductosController : ControllerBase
             FechaPublicacion = producto.EstaPublicado ? ahora : null
         };
 
+        // Serializar con la importación CSV y las ediciones. La consulta
+        // sin índice funcional es deliberada: no migrar/alterar SKU históricos.
+        await using var transaccionSku = await BloquearEscrituraSkuAsync();
+        if (await ExisteOtroSkuAsync(skuSolicitado!))
+            return Conflict(new { codigo = "SKU_DUPLICADO",
+                mensaje = "Este código SKU ya está registrado. Ingresa uno diferente." });
+
         _dbContext.Productos.Add(nuevoProducto);
         try
         {
             await _dbContext.SaveChangesAsync();
+            if (transaccionSku is not null)
+                await transaccionSku.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (ConflictoIndiceSku(ex))
+        {
+            _dbContext.ChangeTracker.Clear();
+            return Conflict(new { codigo = "SKU_DUPLICADO",
+                mensaje = "Este código SKU ya está registrado. Ingresa uno diferente." });
         }
         catch (DbUpdateException ex) when (
             ex.InnerException is Npgsql.PostgresException pg &&
@@ -631,6 +714,10 @@ public class ProductosController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Update(Guid id, [FromBody] ActualizarProductoRequest request)
     {
+        var skuSolicitado = request.Sku?.Trim();
+        if (!SkuValido(skuSolicitado))
+            return BadRequest(new { mensaje = "Ingresa un código SKU de entre 1 y 50 caracteres." });
+
         var producto = await _dbContext.Productos
             .Include(p => p.Stocks)
             .FirstOrDefaultAsync(p => p.Id == id);
@@ -685,7 +772,15 @@ public class ProductosController : ControllerBase
             }
         }
 
-        producto.Sku = request.Sku;
+        await using var transaccionSku = await BloquearEscrituraSkuAsync();
+        // Si el código propio permanece intacto, admitir la edición incluso
+        // en catálogos que ya contengan duplicados históricos.
+        if (!string.Equals(producto.Sku, skuSolicitado, StringComparison.Ordinal) &&
+            await ExisteOtroSkuAsync(skuSolicitado!, id))
+            return Conflict(new { codigo = "SKU_DUPLICADO",
+                mensaje = "Este código SKU ya está registrado. Ingresa uno diferente." });
+
+        producto.Sku = skuSolicitado!;
         producto.Nombre = request.Nombre;
         producto.Descripcion = request.Descripcion;
         producto.CategoriaNombre = request.CategoriaNombre;
@@ -704,7 +799,18 @@ public class ProductosController : ControllerBase
             ? producto.FechaPublicacion ?? DateTime.UtcNow
             : null;
 
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+            if (transaccionSku is not null)
+                await transaccionSku.CommitAsync();
+        }
+        catch (DbUpdateException ex) when (ConflictoIndiceSku(ex))
+        {
+            _dbContext.ChangeTracker.Clear();
+            return Conflict(new { codigo = "SKU_DUPLICADO",
+                mensaje = "Este código SKU ya está registrado. Ingresa uno diferente." });
+        }
         return Ok(producto);
     }
 

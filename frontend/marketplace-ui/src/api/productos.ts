@@ -123,6 +123,12 @@ export const productosApi = {
   proveedoresDisponibles: () => apiClient.get<string[]>('/api/productos/proveedores-disponibles'),
   categoriasDisponibles: () => apiClient.get<string[]>('/api/productos/categorias-disponibles'),
   opcionesAlta: () => apiClient.get<OpcionesAltaProducto>('/api/productos/opciones-alta'),
+  // La comprobación es orientativa: la API vuelve a validar bajo bloqueo al guardar.
+  skuDisponible: (sku: string, excluirId?: string) => {
+    const params = new URLSearchParams({ sku });
+    if (excluirId) params.set('excluirId', excluirId);
+    return apiClient.get<{ disponible: boolean }>(`/api/productos/sku-disponible?${params.toString()}`);
+  },
   listar: (pagina = 1, tamano = 50, orden: OrdenProductos = 'sku') => {
     const params = new URLSearchParams({ pagina: String(pagina), tamano: String(tamano), orden });
     return apiClient.get<ProductosResponse>(`/api/productos?${params.toString()}`).then(normalizarPaginaProductos);

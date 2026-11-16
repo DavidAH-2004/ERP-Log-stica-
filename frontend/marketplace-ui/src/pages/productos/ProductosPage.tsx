@@ -16,6 +16,7 @@ import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
 import { useToast } from '../../context/ToastContext';
 import { productosApi, type CrearProductoRequest, type OpcionesAltaProducto, type OrdenProductos } from '../../api/productos';
+import { ApiError } from '../../api/client';
 import type { Producto } from '../../types';
 
 export default function ProductosPage() {
@@ -44,6 +45,12 @@ export default function ProductosPage() {
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [skuOriginal, setSkuOriginal] = useState('');
+  const [validacionSku, setValidacionSku] = useState<{
+    sku: string;
+    editingId: string | null;
+    estado: 'verificando' | 'disponible' | 'ocupado' | 'error';
+  } | null>(null);
   const [form, setForm] = useState<CrearProductoRequest>({
     sku: '',
     nombre: '',
@@ -130,12 +137,50 @@ export default function ProductosPage() {
     return () => { vigente = false; };
   }, [modalOpen, editingId]);
 
+  // Nunca confiar en la página del catálogo (solo contiene hasta 50 productos).
+  // Consultar la API al escribir, ignorar respuestas obsoletas y no considerar
+  // disponible un SKU cuya verificación falló por red o servidor.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const sku = form.sku.trim();
+    if (!sku || sku.length > 50) {
+      setValidacionSku(null);
+      return;
+    }
+    if (editingId && form.sku === skuOriginal) {
+      // Conservar el propio SKU, aun si hay duplicados históricos previos.
+      setValidacionSku({ sku, editingId, estado: 'disponible' });
+      return;
+    }
+    let vigente = true;
+    setValidacionSku({ sku, editingId, estado: 'verificando' });
+    const timer = window.setTimeout(() => {
+      void productosApi.skuDisponible(sku, editingId ?? undefined)
+        .then(({ disponible }) => {
+          if (vigente) setValidacionSku({ sku, editingId, estado: disponible ? 'disponible' : 'ocupado' });
+        })
+        .catch(() => {
+          if (vigente) setValidacionSku({ sku, editingId, estado: 'error' });
+        });
+    }, 350);
+    return () => { vigente = false; window.clearTimeout(timer); };
+  }, [modalOpen, form.sku, editingId, skuOriginal]);
+
+  const skuActual = form.sku.trim();
+  const skuDisponibleConfirmado = !!skuActual && skuActual.length <= 50 &&
+    validacionSku?.sku === skuActual && validacionSku?.editingId === editingId &&
+    validacionSku.estado === 'disponible';
+  const estadoSkuActual = validacionSku?.sku === skuActual && validacionSku?.editingId === editingId
+    ? validacionSku.estado : 'verificando';
+
   const totalDisponibles = productos.reduce((acc, p) => acc + (p.stock?.cantidadDisponible ?? 0), 0);
   const totalReservados = productos.reduce((acc, p) => acc + (p.stock?.cantidadReservada ?? 0), 0);
   const skusCriticos = productos.filter(p => (p.stock?.cantidadDisponible ?? 0) < 10).length;
 
   const handleOpenCrear = () => {
     setEditingId(null);
+    setSkuOriginal('');
+    setValidacionSku(null);
     setCodigoEditado('');
     setForm({
       sku: '',
@@ -161,6 +206,8 @@ export default function ProductosPage() {
 
   const handleOpenEditar = (p: Producto) => {
     setEditingId(p.id);
+    setSkuOriginal(p.sku);
+    setValidacionSku(null);
     setCodigoEditado(p.codigoEAN ?? '');
     setForm({
       sku: p.sku,
@@ -202,6 +249,8 @@ export default function ProductosPage() {
   };
 
   const handleSave = async () => {
+    // Enter y clic siguen la misma barrera: no enviar sin verificación vigente.
+    if (saving || !skuDisponibleConfirmado) return;
     setSaving(true);
     try {
       if (!editingId && !proveedoresDisponibles.includes(form.proveedorNombre))
@@ -220,8 +269,12 @@ export default function ProductosPage() {
       await loadData();
       setModalOpen(false);
     } catch (error) {
-      const mensaje = error instanceof Error ? error.message : 'No fue posible guardar el producto.';
-      toast.error('Error al guardar producto', mensaje);
+      if (error instanceof ApiError && error.status === 409 && error.data?.codigo === 'SKU_DUPLICADO') {
+        setValidacionSku({ sku: skuActual, editingId, estado: 'ocupado' });
+      } else {
+        const mensaje = error instanceof Error ? error.message : 'No fue posible guardar el producto.';
+        toast.error('Error al guardar producto', mensaje);
+      }
     } finally {
       setSaving(false);
     }
@@ -630,9 +683,20 @@ export default function ProductosPage() {
                   type="text"
                   value={form.sku}
                   onChange={e => setForm(f => ({ ...f, sku: e.target.value }))}
+                  maxLength={50}
+                  aria-describedby="mensaje-validacion-sku"
+                  aria-invalid={!!skuActual && estadoSkuActual === 'ocupado'}
                   required
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', boxSizing: 'border-box' }}
                 />
+                <div id="mensaje-validacion-sku" aria-live="polite" style={{ marginTop: '0.3rem', fontSize: '0.8rem' }}>
+                  {skuActual && estadoSkuActual === 'ocupado' &&
+                    <span role="alert" style={{ color: 'var(--red)' }}>Este código SKU ya está registrado. Ingresa uno diferente.</span>}
+                  {skuActual && estadoSkuActual === 'error' &&
+                    <span role="alert" style={{ color: 'var(--red)' }}>No se pudo verificar el SKU. Comprueba la conexión e inténtalo de nuevo.</span>}
+                  {skuActual && estadoSkuActual === 'verificando' &&
+                    <span style={{ color: 'var(--text-secondary)' }}>Verificando disponibilidad del SKU...</span>}
+                </div>
               </div>
 
               <div>
@@ -735,7 +799,7 @@ export default function ProductosPage() {
               </button>
               <button
                 type="submit"
-                disabled={saving || (!editingId && (!opcionesAlta ||
+                disabled={saving || !skuDisponibleConfirmado || (!editingId && (!opcionesAlta ||
                   !opcionesAlta.vendedores.some(v => v.id === form.vendedorId) ||
                   !opcionesAlta.categorias.some(c => c.id === form.categoriaId)))}
                 style={{
@@ -745,7 +809,7 @@ export default function ProductosPage() {
                   background: 'var(--accent)',
                   color: '#fff',
                   fontWeight: 600,
-                  cursor: saving ? 'not-allowed' : 'pointer',
+                  cursor: saving || !skuDisponibleConfirmado ? 'not-allowed' : 'pointer',
                 }}
               >
                 {saving ? 'Guardando...' : (editingId ? 'Guardar Cambios' : 'Registrar SKU')}
