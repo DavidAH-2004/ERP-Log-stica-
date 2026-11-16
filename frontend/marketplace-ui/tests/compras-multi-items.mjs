@@ -118,7 +118,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 1000 });
   failNext = true;
   await modal.getByRole('button', { name: 'Crear Orden', exact: true }).click();
-  await page.getByText('Error temporal de prueba', { exact: true }).waitFor();
+  await page.getByText(/Error temporal de prueba.*Verifica primero el listado/).waitFor();
   assert.equal(await modal.getByRole('table', { name: 'Productos de la orden' }).locator('tbody tr').count(), 10, 'Error debe conservar lista');
   await modal.getByRole('button', { name: 'Crear Orden', exact: true }).click();
   await modal.waitFor({ state: 'hidden' });
