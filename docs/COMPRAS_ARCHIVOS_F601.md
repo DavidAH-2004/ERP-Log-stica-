@@ -49,7 +49,13 @@ No fusionar con `main` ni con la PR #68 sin el gate productivo #65.
 
 ## Estado real
 
-Implementados backend, entidad, migración EF, interfaz React y prueba de PDF de tres
-productos con regeneración sin duplicados. Compilación .NET y Vite aprobadas.
-Todavía NO están validadas las pruebas end-to-end en Render/Neon Development ni las pruebas
-de todas las transiciones de PO. NO publicar en Production antes de esas pruebas.
+Implementados backend, entidad, migración EF e interfaz React. F611: pruebas de
+PDF real con PO de 1, 3 y 10 ítems, PDF íntegro por SHA256 y regeneración sin
+registros duplicados. F612: reconciliación histórica protegida ante escrituras
+simultáneas mediante el índice UNIQUE de PostgreSQL y tratamiento de colisión.
+F613: ensayo en PostgreSQL local efímero: el documento sobrevive a un DbContext
+nuevo, la segunda inserción del mismo OrdenCompraId es rechazada y el Down de
+la migración se bloquea cuando existen PDFs reales. La base de prueba se destruye.
+Compilación .NET y Vite aprobadas, pruebas de autenticación frontend 31/31 PASS.
+Todavía NO están validadas las pruebas end-to-end en Render/Neon Development ni todas
+las transiciones de PO. NO publicar en Production antes de esas pruebas.
