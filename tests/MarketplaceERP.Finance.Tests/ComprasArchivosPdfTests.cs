@@ -70,4 +70,56 @@ public sealed class ComprasArchivosPdfTests
         Assert.Equal("TEST-0001", segundo.ProveedorNit);
         Assert.NotEqual(hashOriginal, segundo.PdfSha256);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(10)]
+    public async Task DocumentoCarta_AdmiteLimitesDeItems_ConUnArchivoPorOrden(int cantidadItems)
+    {
+        var options = new DbContextOptionsBuilder<FinanceDbContext>()
+            .UseInMemoryDatabase("compras-archivos-limite-" + Guid.NewGuid())
+            .Options;
+        await using var db = new FinanceDbContext(options);
+        var po = new OrdenCompra
+        {
+            Id = Guid.NewGuid(),
+            NumeroPO = "PO-ARCHIVO-ITEMS-" + cantidadItems,
+            ProveedorId = Guid.NewGuid(),
+            ProveedorNombre = "Proveedor de Prueba",
+            Estado = EstadoOrdenCompra.Borrador,
+            FechaEmision = DateTime.UtcNow,
+            TerminosPago = "Contado",
+            SubTotal = 25m * cantidadItems,
+            ImpuestoIva = 3.25m * cantidadItems,
+            MontoTotal = 28.25m * cantidadItems,
+            Items = Enumerable.Range(1, cantidadItems).Select(i => new ItemOrdenCompra
+            {
+                Id = Guid.NewGuid(),
+                Sku = $"SKU-QA-{i:D3}",
+                NombreProducto = $"Artículo de prueba número {i}",
+                CantidadSolicitada = 1,
+                PrecioUnitarioAcordado = 25m
+            }).ToList()
+        };
+        db.OrdenesCompra.Add(po);
+        var service = new ComprasArchivoPdfService(db);
+        await service.PrepararAsync(po, null, CancellationToken.None);
+        await db.SaveChangesAsync();
+
+        var archivo = Assert.Single(db.ArchivosCompras);
+        Assert.Equal(cantidadItems, archivo.CantidadItems);
+        Assert.Equal(po.MontoTotal, archivo.MontoTotal);
+        Assert.Equal(1, archivo.VersionPdf);
+        Assert.StartsWith("%PDF", Encoding.ASCII.GetString(archivo.PdfContenido[..8]));
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archivo.PdfContenido)),
+            archivo.PdfSha256);
+
+        // A later state update changes this existing file; never add another row.
+        po.Estado = EstadoOrdenCompra.Enviada;
+        await service.PrepararAsync(po, null, CancellationToken.None);
+        await db.SaveChangesAsync();
+        Assert.Single(db.ArchivosCompras);
+        Assert.Equal(2, archivo.VersionPdf);
+        Assert.Equal("Enviada", archivo.Estado);
+    }
 }

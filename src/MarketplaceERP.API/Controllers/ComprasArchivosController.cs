@@ -5,6 +5,7 @@ using MarketplaceERP.Finance.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace MarketplaceERP.API.Controllers;
 
@@ -106,9 +107,20 @@ public sealed class ComprasArchivosController : ControllerBase
             if (po is null) continue;
             var proveedor = await _core.Proveedores.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == po.ProveedorId, ct);
-            await _pdf.PrepararAsync(po, proveedor, ct);
-            await _finance.SaveChangesAsync(ct);
-            archivadas++;
+            try
+            {
+                await _pdf.PrepararAsync(po, proveedor, ct);
+                await _finance.SaveChangesAsync(ct);
+                archivadas++;
+            }
+            catch (DbUpdateException ex) when (ex.InnerException is PostgresException pg &&
+                pg.SqlState == PostgresErrorCodes.UniqueViolation &&
+                pg.ConstraintName == "IX_archivos_compras_OrdenCompraId")
+            {
+                // A second admin/request may have archived this PO first.
+                // The database UNIQUE constraint wins; do not insert a second file.
+                _finance.ChangeTracker.Clear();
+            }
         }
         Response.Headers.CacheControl = "no-store";
         return Ok(new { archivadas, limite });
