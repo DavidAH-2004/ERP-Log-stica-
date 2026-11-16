@@ -167,12 +167,12 @@ public sealed class PostgresSchemaMigrationSmokeTests : IAsyncLifetime
         var applicationId = Guid.NewGuid();
         var transactionId = Guid.NewGuid();
         const string mockSecret = "f483-test-only-no-merchant-secret";
-        string Body(bool productive) => $"""
-            {"IdCuenta":"{{accountId}}","IdTransaccion":"{{transactionId}}",
-             "Aplicativo":{"Id":"{{applicationId}}"},"Monto":10.25,
-             "EsProductiva":{{productive.ToString().ToLowerInvariant()}},
-             "ResultadoTransaccion":"ExitosaAprobada"}
-            """;
+        string Body(bool productive) => System.Text.Json.JsonSerializer.Serialize(new
+        {
+            IdCuenta = accountId, IdTransaccion = transactionId,
+            Aplicativo = new { Id = applicationId }, Monto = 10.25m,
+            EsProductiva = productive, ResultadoTransaccion = "ExitosaAprobada"
+        });
         static byte[] Bytes(string body) => System.Text.Encoding.UTF8.GetBytes(body);
         static string Signature(byte[] bytes) => Convert.ToHexString(
             System.Security.Cryptography.HMACSHA256.HashData(
