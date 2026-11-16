@@ -60,6 +60,59 @@ public class RmaController : ControllerBase
         _catalogDb = catalogDb;
     }
 
+    /// <summary>Órdenes entregadas seleccionables en una solicitud RMA (Admin).</summary>
+    [HttpGet("ordenes-elegibles")]
+    public async Task<IActionResult> OrdenesElegibles(
+        [FromQuery] string? buscar = null,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamano = 25,
+        CancellationToken cancellationToken = default)
+    {
+        if (pagina < 1 || tamano is < 1 or > 100 || ((long)pagina - 1) * tamano > int.MaxValue)
+            return BadRequest(new { mensaje = "Paginación inválida." });
+        var query = _financeDb.Ordenes.AsNoTracking().Where(o => o.Estado == EstadoOrden.Entregada);
+        if (!string.IsNullOrWhiteSpace(buscar))
+        {
+            var texto = buscar.Trim();
+            query = query.Where(o => o.NumeroOrden.Contains(texto));
+        }
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query.OrderByDescending(o => o.FechaCreacion).ThenBy(o => o.Id)
+            .Skip((pagina - 1) * tamano).Take(tamano)
+            .Select(o => new { o.Id, o.NumeroOrden }).ToListAsync(cancellationToken);
+        return Ok(new { total, pagina, tamano, items });
+    }
+
+    /// <summary>Productos vendidos en la orden entregada, con saldo real disponible para devolución.</summary>
+    [HttpGet("ordenes/{ordenId:guid}/productos-devolvibles")]
+    public async Task<IActionResult> ProductosDevolvibles(Guid ordenId, CancellationToken cancellationToken)
+    {
+        var orden = await _financeDb.Ordenes.AsNoTracking()
+            .Include(o => o.Items)
+            .SingleOrDefaultAsync(o => o.Id == ordenId && o.Estado == EstadoOrden.Entregada, cancellationToken);
+        if (orden is null) return NotFound(new { mensaje = "Orden entregada no encontrada." });
+
+        var solicitadas = await _catalogDb.DevolucionesRMA.AsNoTracking()
+            .Where(r => r.OrdenId == ordenId && r.Estado != EstadoRMA.Rechazado)
+            .GroupBy(r => r.ProductoId)
+            .Select(g => new { ProductoId = g.Key, Cantidad = g.Sum(r => r.Cantidad) })
+            .ToListAsync(cancellationToken);
+        var anteriores = solicitadas.ToDictionary(x => x.ProductoId, x => x.Cantidad);
+        var items = orden.Items.GroupBy(i => i.ProductoId)
+            .Select(g => new
+            {
+                ProductoId = g.Key,
+                Sku = g.First().SkuReferencia,
+                Nombre = g.First().NombreProducto,
+                CantidadVendida = g.Sum(i => i.Cantidad),
+                CantidadDisponible = Math.Max(0, g.Sum(i => i.Cantidad) -
+                    anteriores.GetValueOrDefault(g.Key))
+            })
+            .Where(i => i.CantidadDisponible > 0)
+            .OrderBy(i => i.Sku).ToArray();
+        return Ok(new { ordenId, items });
+    }
+
     /// <summary>
     /// Registra una nueva solicitud de devolución / RMA por parte de un cliente o post-venta.
     /// </summary>

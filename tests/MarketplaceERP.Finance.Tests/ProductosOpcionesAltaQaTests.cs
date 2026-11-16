@@ -377,6 +377,9 @@ public sealed class ProductosOpcionesAltaQaTests
             new Categoria { Id = Guid.NewGuid(), Nombre = "Tecnología" },
             new Categoria { Id = Guid.NewGuid(), Nombre = "Accesorios" }
         );
+        core.Proveedores.Add(new Proveedor {
+            Id = Guid.NewGuid(), NombreComercial = "QA", RazonSocial = "Proveedor QA", Activo = true
+        });
         core.SaveChanges();
         return (catalog, core, a, b, inactive);
     }

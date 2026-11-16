@@ -6,6 +6,9 @@
 import { apiClient } from './client';
 import type { Producto } from '../types';
 
+/** Ordenado en la API sobre todo el catálogo, antes de la paginación. */
+export type OrdenProductos = 'sku' | 'recientes' | 'antiguos';
+
 export interface ProductosResponse {
   total: number;
   pagina: number;
@@ -117,9 +120,13 @@ const toBackendProducto = (req: CrearProductoRequest) => {
 };
 
 export const productosApi = {
+  proveedoresDisponibles: () => apiClient.get<string[]>('/api/productos/proveedores-disponibles'),
+  categoriasDisponibles: () => apiClient.get<string[]>('/api/productos/categorias-disponibles'),
   opcionesAlta: () => apiClient.get<OpcionesAltaProducto>('/api/productos/opciones-alta'),
-  listar: (pagina = 1, tamano = 50) =>
-    apiClient.get<ProductosResponse>(`/api/productos?pagina=${pagina}&tamano=${tamano}`).then(normalizarPaginaProductos),
+  listar: (pagina = 1, tamano = 50, orden: OrdenProductos = 'sku') => {
+    const params = new URLSearchParams({ pagina: String(pagina), tamano: String(tamano), orden });
+    return apiClient.get<ProductosResponse>(`/api/productos?${params.toString()}`).then(normalizarPaginaProductos);
+  },
 
   buscar: (params: {
     q?: string;
@@ -130,6 +137,7 @@ export const productosApi = {
     soloConStock?: boolean;
     pagina?: number;
     tamano?: number;
+    orden?: OrdenProductos;
   }) => {
     const q = new URLSearchParams();
     if (params.q) q.set('q', params.q);
@@ -140,6 +148,7 @@ export const productosApi = {
     if (params.soloConStock !== undefined) q.set('soloConStock', String(params.soloConStock));
     if (params.pagina) q.set('pagina', String(params.pagina));
     if (params.tamano) q.set('tamano', String(params.tamano));
+    if (params.orden) q.set('orden', params.orden);
     return apiClient.get<ProductosResponse>(`/api/productos/buscar?${q.toString()}`).then(normalizarPaginaProductos);
   },
 

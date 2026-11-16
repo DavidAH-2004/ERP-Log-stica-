@@ -42,15 +42,49 @@ public class ProductosController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>Nombres de proveedores activos para asociar un producto a Core.</summary>
+    [HttpGet("proveedores-disponibles")]
+    [Authorize(Roles = "Admin,Vendedor")]
+    public async Task<IActionResult> ProveedoresDisponibles(CancellationToken cancellationToken)
+    {
+        if (_coreDb is null) return StatusCode(503, new { mensaje = "Core no disponible." });
+        var nombres = await _coreDb.Proveedores.AsNoTracking()
+            .Where(p => p.Activo)
+            .OrderBy(p => p.NombreComercial)
+            .Select(p => p.NombreComercial)
+            .ToListAsync(cancellationToken);
+        return Ok(nombres);
+    }
+
+    /// <summary>Categorías que realmente están asignadas a productos publicados.</summary>
+    [HttpGet("categorias-disponibles")]
+    [Authorize(Roles = "Admin,Vendedor")]
+    public async Task<IActionResult> CategoriasDisponibles(CancellationToken cancellationToken)
+    {
+        var query = _dbContext.Productos.AsNoTracking()
+            .Where(p => p.EstaPublicado && p.CategoriaNombre != "");
+        if (!User.IsInRole("Admin"))
+        {
+            var vendedorId = ObtenerVendedorIdActual();
+            if (!vendedorId.HasValue) return Forbid();
+            query = query.Where(p => p.VendedorId == vendedorId.Value);
+        }
+        var nombres = await query.Select(p => p.CategoriaNombre).Distinct()
+            .OrderBy(n => n).ToListAsync(cancellationToken);
+        return Ok(nombres);
+    }
+
     /// <summary>
     /// Lista todos los productos publicados (con soporte de paginación básica).
     /// </summary>
     [HttpGet]
     [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetPublicados([FromQuery] int pagina = 1, [FromQuery] int tamano = 50)
+    public async Task<IActionResult> GetPublicados([FromQuery] int pagina = 1, [FromQuery] int tamano = 50, [FromQuery] string? orden = null)
     {
         if (!PaginacionValida(pagina, tamano))
             return BadRequest(new { mensaje = "La página debe ser positiva, el tamaño estar entre 1 y 500 y el desplazamiento ser válido." });
+        if (!OrdenValido(orden))
+            return BadRequest(new { mensaje = "Orden inválido. Utilice sku, recientes o antiguos." });
 
         var query = _dbContext.Productos
             .AsNoTracking()
@@ -69,8 +103,7 @@ public class ProductosController : ControllerBase
             return Forbid();
 
         var total = await query.CountAsync();
-        var productos = await query
-            .OrderBy(p => p.Sku)
+        var productos = await OrdenarCatalogo(query, orden)
             .Skip((pagina - 1) * tamano)
             .Take(tamano)
             .ToListAsync();
@@ -97,10 +130,13 @@ public class ProductosController : ControllerBase
         [FromQuery] decimal? precioMax,
         [FromQuery] bool? soloConStock,
         [FromQuery] int pagina = 1,
-        [FromQuery] int tamano = 50)
+        [FromQuery] int tamano = 50,
+        [FromQuery] string? orden = null)
     {
         if (!PaginacionValida(pagina, tamano))
             return BadRequest(new { mensaje = "La página debe ser positiva, el tamaño estar entre 1 y 500 y el desplazamiento ser válido." });
+        if (!OrdenValido(orden))
+            return BadRequest(new { mensaje = "Orden inválido. Utilice sku, recientes o antiguos." });
 
         var query = _dbContext.Productos
             .AsNoTracking()
@@ -151,8 +187,7 @@ public class ProductosController : ControllerBase
         }
 
         var total = await query.CountAsync();
-        var items = await query
-            .OrderBy(p => p.Sku)
+        var items = await OrdenarCatalogo(query, orden)
             .Skip((pagina - 1) * tamano)
             .Take(tamano)
             .ToListAsync();
@@ -516,6 +551,11 @@ public class ProductosController : ControllerBase
                     c.Nombre == producto.CategoriaNombre);
             if (!vendedorActivo || !categoriaConNombre)
                 return BadRequest(new { mensaje = "El vendedor o la categoría no existen en Core." });
+
+            var proveedorActivo = await _coreDb.Proveedores.AsNoTracking()
+                .AnyAsync(p => p.Activo && p.NombreComercial == producto.ProveedorNombre);
+            if (!proveedorActivo)
+                return BadRequest(new { mensaje = "Selecciona un proveedor activo del maestro Core." });
         }
 
         // F419: prevenir que dos SKU compartan el mismo EAN incluso entre
@@ -622,6 +662,29 @@ public class ProductosController : ControllerBase
                     "La rotación requiere un proceso Admin auditado independiente." });
         }
 
+        // Se permiten referencias históricas sin vincular solo cuando NO se modifican.
+        // Nuevos proveedores o categorías deben existir en el maestro Core.
+        if (request.ProveedorNombre != producto.ProveedorNombre ||
+            request.CategoriaNombre != producto.CategoriaNombre)
+        {
+            if (_coreDb is null)
+                return StatusCode(503, new { mensaje = "Validación de Core no disponible." });
+            if (request.ProveedorNombre != producto.ProveedorNombre &&
+                !await _coreDb.Proveedores.AsNoTracking().AnyAsync(p =>
+                    p.Activo && p.NombreComercial == request.ProveedorNombre))
+                return BadRequest(new { mensaje = "Proveedor no registrado o inactivo." });
+            if (request.CategoriaNombre != producto.CategoriaNombre)
+            {
+                var categoriaNueva = await _coreDb.Categorias.AsNoTracking()
+                    .Where(c => c.Nombre == request.CategoriaNombre)
+                    .Select(c => new { c.Id })
+                    .FirstOrDefaultAsync();
+                if (categoriaNueva is null)
+                    return BadRequest(new { mensaje = "Categoría no registrada en Core." });
+                producto.CategoriaId = categoriaNueva.Id;
+            }
+        }
+
         producto.Sku = request.Sku;
         producto.Nombre = request.Nombre;
         producto.Descripcion = request.Descripcion;
@@ -698,6 +761,21 @@ public class ProductosController : ControllerBase
 
         return NoContent();
     }
+
+    // Ordenamiento en la base de datos, ANTES de Skip/Take.
+    // SKU e Id desempatan marcas de tiempo iguales y estabilizan las páginas.
+    private static IQueryable<Producto> OrdenarCatalogo(IQueryable<Producto> productos, string? orden) =>
+        orden?.Trim().ToLowerInvariant() switch
+        {
+            "recientes" => productos.OrderByDescending(p => p.FechaCreacion)
+                .ThenBy(p => p.Sku).ThenBy(p => p.Id),
+            "antiguos" => productos.OrderBy(p => p.FechaCreacion)
+                .ThenBy(p => p.Sku).ThenBy(p => p.Id),
+            _ => productos.OrderBy(p => p.Sku).ThenBy(p => p.Id)
+        };
+
+    private static bool OrdenValido(string? orden) =>
+        orden is null || orden.Trim().ToLowerInvariant() is "" or "sku" or "recientes" or "antiguos";
 
     // El catálogo inicial contiene 500 SKU; no permitir consultas sin límite
     // ni desbordamientos enteros al calcular Skip((pagina - 1) * tamano).

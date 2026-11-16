@@ -68,6 +68,21 @@ export interface POListResponse {
   ordenesCompra: OrdenCompra[];
 }
 
+export interface ProductoParaCompra {
+  id: string;
+  sku: string;
+  nombre: string;
+  /** Precio histórico de la última PO no cancelada; NO es precio de venta. */
+  precioCompraReferencia: number | null;
+}
+
+export interface ProductosParaCompraResponse {
+  total: number;
+  pagina: number;
+  tamano: number;
+  items: ProductoParaCompra[];
+}
+
 export interface ItemPORequest {
   sku: string;
   nombreProducto: string;
@@ -177,6 +192,14 @@ const mapMatch = (m: BackendMatch): MatchTridireccional => ({
 });
 
 export const comprasApi = {
+  productosDisponibles: (params: { q?: string; pagina?: number; tamano?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    query.set('pagina', String(params.pagina ?? 1));
+    query.set('tamano', String(params.tamano ?? 25));
+    return apiClient.get<ProductosParaCompraResponse>(`/api/compras/productos-disponibles?${query.toString()}`);
+  },
+
   listarPO: async (params?: { estado?: string; pagina?: number; tamano?: number }) => {
     const q = new URLSearchParams();
     if (params?.estado) q.set('estado', params.estado);

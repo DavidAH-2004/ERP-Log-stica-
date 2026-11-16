@@ -102,6 +102,64 @@ public class ComprasController : ControllerBase
         return Ok(po);
     }
 
+    // Productos activos del maestro para crear PO. La búsqueda se realiza en el
+    // servidor: no limitar el selector a los SKU de la primera página del catálogo.
+    // PrecioCompraReferencia proviene de la última PO NO cancelada; el producto
+    // no almacena un costo de compra, y sus precios B2B/B2C son de VENTA.
+    [HttpGet("productos-disponibles", Name = "ProductosDisponiblesParaCompras")]
+    [ProducesResponseType(typeof(ProductosParaCompraResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ProductosDisponibles(
+        [FromQuery] string? q = null,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamano = 25,
+        CancellationToken cancellationToken = default)
+    {
+        if (_catalogDb is null)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "El catálogo de productos no está disponible." });
+        if (pagina <= 0 || tamano is < 1 or > 50 || (long)(pagina - 1) * tamano > int.MaxValue)
+            return BadRequest(new { mensaje = "Paginación inválida para productos de compra." });
+        if (q?.Length > 100)
+            return BadRequest(new { mensaje = "La búsqueda no puede superar 100 caracteres." });
+
+        var query = _catalogDb.Productos.AsNoTracking()
+            .Where(p => p.EstadoProducto == "Activo");
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var texto = q.Trim().ToLower();
+            query = query.Where(p => p.Sku.ToLower().Contains(texto) || p.Nombre.ToLower().Contains(texto));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var productos = await query.OrderBy(p => p.Sku).ThenBy(p => p.Id)
+            .Skip((pagina - 1) * tamano).Take(tamano)
+            .Select(p => new { p.Id, p.Sku, p.Nombre })
+            .ToListAsync(cancellationToken);
+
+        var ids = productos.Select(p => p.Id).ToArray();
+        var historico = ids.Length == 0
+            ? new List<PrecioHistoricoCompra>()
+            : await _db.ItemsOrdenCompra.AsNoTracking()
+                .Where(i => ids.Contains(i.ProductoId) &&
+                    i.OrdenCompra.Estado != EstadoOrdenCompra.Cancelada &&
+                    i.PrecioUnitarioAcordado > 0m)
+                .OrderByDescending(i => i.OrdenCompra.FechaEmision)
+                .ThenByDescending(i => i.Id)
+                .Select(i => new PrecioHistoricoCompra(i.ProductoId, i.PrecioUnitarioAcordado))
+                .ToListAsync(cancellationToken);
+
+        var referenciaPorProducto = historico
+            .GroupBy(i => i.ProductoId)
+            .ToDictionary(g => g.Key, g => g.First().PrecioUnitario);
+        var opciones = productos.Select(p => new ProductoParaCompra(
+            p.Id, p.Sku, p.Nombre,
+            referenciaPorProducto.TryGetValue(p.Id, out var precio) ? (decimal?)precio : null)).ToList();
+
+        return Ok(new ProductosParaCompraResponse(total, pagina, tamano, opciones));
+    }
+
+    private sealed record PrecioHistoricoCompra(Guid ProductoId, decimal PrecioUnitario);
+
     // ── POST /api/compras/po ──────────────────────────────────────────────────
     /// <summary>Emite una nueva Orden de Compra al proveedor.</summary>
     [HttpPost("po", Name = "CrearOrdenCompra")]
@@ -177,7 +235,7 @@ public class ComprasController : ControllerBase
         var skusSolicitados = req.Items.Select(i => i.Sku.Trim()).ToArray();
         var productosCatalogo = await _catalogDb.Productos
             .AsNoTracking()
-            .Where(p => skusSolicitados.Contains(p.Sku))
+            .Where(p => skusSolicitados.Contains(p.Sku) && p.EstadoProducto == "Activo")
             .ToListAsync(cancellationToken);
         var productosPorSku = productosCatalogo.ToDictionary(
             p => p.Sku, StringComparer.OrdinalIgnoreCase);
@@ -221,7 +279,8 @@ public class ComprasController : ControllerBase
                 OrdenCompraId = po.Id,
                 ProductoId = productosPorSku[item.Sku.Trim()].Id,
                 Sku = item.Sku.Trim(),
-                NombreProducto = item.NombreProducto.Trim(),
+                // La identidad visible se toma del catálogo, no del texto del cliente.
+                NombreProducto = productosPorSku[item.Sku.Trim()].Nombre,
                 CantidadSolicitada = item.Cantidad,
                 PrecioUnitarioAcordado = item.PrecioUnitario,
                 CantidadRecibida = 0,
@@ -831,3 +890,7 @@ public record RegistrarFacturaRequest(
     DateTime? FechaEmision,
     DateTime? FechaVencimiento,
     List<LineaFacturaProveedorRequest>? Lineas = null);
+
+// Respuesta tipada del selector para Compras; no expone costos de venta.
+public sealed record ProductoParaCompra(Guid Id, string Sku, string Nombre, decimal? PrecioCompraReferencia);
+public sealed record ProductosParaCompraResponse(int Total, int Pagina, int Tamano, List<ProductoParaCompra> Items);

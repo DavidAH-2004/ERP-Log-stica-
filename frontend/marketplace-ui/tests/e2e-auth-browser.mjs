@@ -73,6 +73,12 @@ function setupApi(page) {
       return route.fulfill({ status: 503, contentType: 'application/json',
         body: JSON.stringify({ mensaje: 'KPI no disponible en el fixture local' }) });
     }
+    // Fase 2: el catálogo solicita las categorías registradas al montar.
+    // El contrato de /categorias-disponibles es string[], no un objeto genérico.
+    if (url.pathname === '/api/productos/categorias-disponibles') {
+      return route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify(['General', 'Tecnología']) });
+    }
     if (url.pathname === '/api/productos' || url.pathname === '/api/productos/buscar') {
       const pagina = Number(url.searchParams.get('pagina') || 1);
       const tamano = Number(url.searchParams.get('tamano') || 50);

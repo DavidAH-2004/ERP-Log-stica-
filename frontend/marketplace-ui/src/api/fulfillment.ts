@@ -53,7 +53,22 @@ export interface EmpacarResponse {
   transportista: string;
 }
 
+export interface OrdenParaSeleccion {
+  id: string;
+  numeroOrden: string;
+}
+export interface PaginaOrdenesSeleccion {
+  total: number;
+  pagina: number;
+  tamano: number;
+  items: OrdenParaSeleccion[];
+}
+
 export const fulfillmentApi = {
+  ordenesParaEmpaque: (buscar = '', pagina = 1, tamano = 25) => {
+    const q = new URLSearchParams({ buscar, pagina: String(pagina), tamano: String(tamano) });
+    return apiClient.get<PaginaOrdenesSeleccion>(`/api/fulfillment/ordenes-para-empaque?${q}`);
+  },
   listarPickLists: (estado?: string) =>
     apiClient.get<PickList[]>(`/api/fulfillment/picklists${estado ? `?estado=${encodeURIComponent(estado)}` : ''}`),
 

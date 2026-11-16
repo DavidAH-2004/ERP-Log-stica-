@@ -222,6 +222,8 @@ public class AutorizacionU2Tests
                 action.Name == nameof(ProductosController.Buscar) ||
                 action.Name == nameof(ProductosController.GetById));
             var isProductSellerOp = isProductController && (
+                action.Name == nameof(ProductosController.ProveedoresDisponibles) ||
+                action.Name == nameof(ProductosController.CategoriasDisponibles) ||
                 action.Name == nameof(ProductosController.OpcionesAlta) ||
                 action.Name == nameof(ProductosController.Create) ||
                 action.Name == nameof(ProductosController.Update) ||
@@ -268,8 +270,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
         Assert.Equal(30, controllers.Length);
-        Assert.Equal(110, actions); // F360 agrega POST api/auth/logout autorizado.
-        Assert.Equal(111, routes); // Productos/GetAlertasStock tiene dos alias.
+        Assert.Equal(116, actions); // F499: includes six PR #72 selector endpoints and F360 logout.
+        Assert.Equal(117, routes); // One extra Productos/GetAlertasStock alias.
     }
 
     [Theory]

@@ -13,6 +13,7 @@ import { useToast } from '../../context/ToastContext';
 import { comprasApi, type CrearPORequest, type RegistrarFacturaRequest, type Validar3WayMatchRequest, type RecibirMercaderiaRequest } from '../../api/compras';
 import { wmsApi } from '../../api/wms';
 import { proveedoresApi, type ProveedorLogistico } from '../../api/proveedores';
+import ProductoPOSelector from './ProductoPOSelector';
 import type { OrdenCompra, FacturaProveedor, MatchTridireccional, UbicacionAlmacen } from '../../types';
 
 type RecepcionLinea = {
@@ -180,6 +181,17 @@ export default function ComprasPage() {
     }
   };
   const handleCrearPO = async () => {
+    const linea = poForm.items[0];
+    if (!linea?.sku || !linea.nombreProducto) {
+      toast.warning('Producto requerido', 'Selecciona un producto activo del catálogo.');
+      return;
+    }
+    if (!Number.isInteger(linea.cantidad) || linea.cantidad <= 0 ||
+        !Number.isFinite(linea.precioUnitario) || linea.precioUnitario <= 0 ||
+        Math.round(linea.precioUnitario * 100) !== linea.precioUnitario * 100) {
+      toast.warning('Cantidad o precio inválido', 'Indica una cantidad positiva y un precio de compra mayor que cero, con máximo dos decimales.');
+      return;
+    }
     if (!poForm.proveedorId) {
       toast.warning('Proveedor requerido', 'Selecciona un proveedor activo del maestro corporativo.');
       return;
@@ -331,6 +343,8 @@ export default function ComprasPage() {
   };
 
   const proveedorSeleccionado = proveedores.find(p => p.id === poForm.proveedorId);
+  const subtotalPo = Math.round((poForm.items[0]?.cantidad ?? 0) * (poForm.items[0]?.precioUnitario ?? 0) * 100) / 100;
+  const ivaPo = Math.round(subtotalPo * 0.13 * 100) / 100;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -363,7 +377,14 @@ export default function ComprasPage() {
             Refrescar
           </button>
           <button
-            onClick={() => setPoModalOpen(true)}
+            onClick={() => {
+              setPoForm({
+                proveedorId: '', proveedorNombre: '', terminosPago: 'Crédito 30 días',
+                observaciones: '', fechaEntregaEsperada: new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
+                items: [{ sku: '', nombreProducto: '', cantidad: 1, precioUnitario: 0 }],
+              });
+              setPoModalOpen(true);
+            }}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -825,20 +846,27 @@ export default function ComprasPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '0.5rem' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</label>
-                  <input
-                    type="text"
-                    value={poForm.items[0]?.nombreProducto}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setPoForm(f => ({ ...f, items: [{ ...f.items[0], nombreProducto: val }] }));
-                    }}
-                    style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
+                  <ProductoPOSelector
+                    sku={poForm.items[0]?.sku ?? ''}
+                    nombre={poForm.items[0]?.nombreProducto ?? ''}
+                    disabled={savingPo}
+                    onSeleccionar={producto => setPoForm(f => ({
+                      ...f,
+                      items: [{
+                        ...f.items[0],
+                        sku: producto.sku,
+                        nombreProducto: producto.nombre,
+                        precioUnitario: producto.precioCompraReferencia ?? 0,
+                      }],
+                    }))}
                   />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cantidad</label>
                   <input
                     type="number"
+                    min="1"
+                    step="1"
                     value={poForm.items[0]?.cantidad}
                     onChange={e => {
                       const val = parseInt(e.target.value) || 0;
@@ -848,11 +876,13 @@ export default function ComprasPage() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio Unit. ($)</label>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio compra unit. ($)</label>
                   <input
                     type="number"
                     step="0.01"
-                    value={poForm.items[0]?.precioUnitario}
+                    min="0.01"
+                    placeholder="Ingresar precio de compra"
+                    value={poForm.items[0]?.precioUnitario || ''}
                     onChange={e => {
                       const val = parseFloat(e.target.value) || 0;
                       setPoForm(f => ({ ...f, items: [{ ...f.items[0], precioUnitario: val }] }));
@@ -861,8 +891,16 @@ export default function ComprasPage() {
                   />
                 </div>
               </div>
-              <div style={{ textAlign: 'right', marginTop: '0.5rem', fontWeight: 700, color: 'var(--green)' }}>
-                Total PO: ${(poForm.items[0]?.cantidad * poForm.items[0]?.precioUnitario).toLocaleString('es-SV', { minimumFractionDigits: 2 })}
+              <div style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
+                El precio inicial procede de la última orden de compra no cancelada, si existe.
+                Puedes modificarlo para esta compra. No se utilizan precios de venta.
+              </div>
+              <div style={{ textAlign: 'right', marginTop: '0.5rem', fontSize: 12, color: 'var(--text-secondary)' }}>
+                Subtotal: ${subtotalPo.toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {' · '}IVA (13%): ${ivaPo.toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div style={{ textAlign: 'right', marginTop: '0.25rem', fontWeight: 700, color: 'var(--green)' }}>
+                Total PO (con IVA): ${(subtotalPo + ivaPo).toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
 
@@ -883,7 +921,8 @@ export default function ComprasPage() {
               </button>
               <button
                 type="submit"
-                disabled={savingPo || !poForm.proveedorId}
+                disabled={savingPo || !poForm.proveedorId || !poForm.items[0]?.sku ||
+                  (poForm.items[0]?.cantidad ?? 0) <= 0 || (poForm.items[0]?.precioUnitario ?? 0) <= 0}
                 style={{
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',
@@ -891,7 +930,8 @@ export default function ComprasPage() {
                   background: 'var(--accent)',
                   color: '#fff',
                   fontWeight: 600,
-                  cursor: (savingPo || !poForm.proveedorId) ? 'not-allowed' : 'pointer',
+                  cursor: (savingPo || !poForm.proveedorId || !poForm.items[0]?.sku ||
+                    (poForm.items[0]?.cantidad ?? 0) <= 0 || (poForm.items[0]?.precioUnitario ?? 0) <= 0) ? 'not-allowed' : 'pointer',
                 }}
               >
                 {savingPo ? 'Guardando...' : 'Crear Orden'}
@@ -1257,7 +1297,9 @@ export default function ComprasPage() {
                 <input
                   type="number"
                   value={matchForm.cantidadRecibidaBodega}
-                  onChange={e => setMatchForm(f => ({ ...f, cantidadRecibidaBodega: parseInt(e.target.value) || 0 }))}
+                  readOnly
+                  aria-label="Cantidad recibida según recepciones WMS"
+                  title="Cantidad obtenida automáticamente de recepciones WMS registradas"
                   style={{
                     width: '100%',
                     padding: '0.5rem 0.75rem',
