@@ -63,6 +63,40 @@ public sealed class OrdenEvaluacionService(
             throw new EvaluacionOrdenException(503, "Reservas persistentes no disponibles.");
     }
 
+    /// <summary>
+    /// Populate the Admin QA order form from live, eligible master data. Reuse
+    /// the exact same fail-closed gate as CreateAsync: no options when OMS
+    /// evaluation writes are unavailable in the isolated staging target.
+    /// This method never creates orders, reservations, or payments.
+    /// </summary>
+    public async Task<OrdenEvaluacionOpcionesResponse> GetOptionsAsync(CancellationToken ct)
+    {
+        ValidateTarget();
+        var compradores = await core.Compradores.AsNoTracking()
+            .Where(x => x.EstaActivo)
+            .OrderBy(x => x.NombreCompleto).ThenBy(x => x.Id)
+            .Select(x => new OrdenEvaluacionOpcion(x.Id, x.NombreCompleto))
+            .Take(1000).ToListAsync(ct);
+        var vendedores = await core.Vendedores.AsNoTracking()
+            .Where(x => x.EstaActivo)
+            .OrderBy(x => x.NombreEmpresa).ThenBy(x => x.Id)
+            .Select(x => new OrdenEvaluacionOpcion(x.Id, x.NombreEmpresa))
+            .Take(1000).ToListAsync(ct);
+        var ids = vendedores.Select(x => x.Id).ToArray();
+        var productos = await catalog.Productos.AsNoTracking()
+            .Where(p => ids.Contains(p.VendedorId) && p.EstaPublicado &&
+                p.EstadoProducto == "Activo" && p.Moneda == "USD" &&
+                p.PrecioB2C > 0m && p.PrecioB2C <= 1000000m &&
+                p.PrecioB2B > 0m && p.PrecioB2B <= 1000000m &&
+                catalog.StockFisico.Any(s => s.ProductoId == p.Id &&
+                    s.CantidadTotal > s.CantidadReservada + s.CantidadBloqueada))
+            .OrderBy(p => p.Sku).ThenBy(p => p.Id)
+            .Select(p => new OrdenEvaluacionProducto(p.Id, p.Nombre, p.VendedorId,
+                p.Sku, p.PrecioB2C, p.PrecioB2B))
+            .Take(1000).ToListAsync(ct);
+        return new OrdenEvaluacionOpcionesResponse(compradores, vendedores, productos);
+    }
+
     public async Task<Orden> CreateAsync(CrearOrdenRequest request, Guid actor, string key,
         CancellationToken ct)
     {
@@ -201,6 +235,14 @@ public sealed class OrdenEvaluacionService(
         }
     }
 }
+
+public sealed record OrdenEvaluacionOpcion(Guid Id, string Nombre);
+public sealed record OrdenEvaluacionProducto(Guid Id, string Nombre, Guid VendedorId,
+    string Sku, decimal PrecioB2C, decimal PrecioB2B);
+public sealed record OrdenEvaluacionOpcionesResponse(
+    IReadOnlyList<OrdenEvaluacionOpcion> Compradores,
+    IReadOnlyList<OrdenEvaluacionOpcion> Vendedores,
+    IReadOnlyList<OrdenEvaluacionProducto> Productos);
 
 public sealed class EvaluacionOrdenException(int statusCode, string message) : Exception(message)
 {

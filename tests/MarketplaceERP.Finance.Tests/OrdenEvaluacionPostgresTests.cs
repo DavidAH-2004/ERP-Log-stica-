@@ -68,7 +68,31 @@ public sealed class OrdenEvaluacionPostgresTests
                     PrecioB2C = 25m, PrecioB2B = 250m, VendedorId = seller, CategoriaId = Guid.NewGuid() });
                 catalog.StockFisico.Add(new StockFisico { Id = Guid.NewGuid(), ProductoId = id, CantidadTotal = 20 });
             }
+            // An active catalog record with no WMS stock must NOT be offered
+            // as an orderable product in the Admin form.
+            catalog.Productos.Add(new Producto {
+                Id = Guid.NewGuid(), Sku = "F665-OUT-OF-STOCK", Nombre = "Sin existencias",
+                PrecioB2C = 10m, PrecioB2B = 100m,
+                VendedorId = seller, CategoriaId = Guid.NewGuid()
+            });
             await catalog.SaveChangesAsync();
+        }
+        // GET /api/ordenes/evaluacion/opciones must return only live,
+        // in-stock master data under the same bounded staging QA gate.
+        using (var check = provider.CreateScope())
+        {
+            var evaluation = check.ServiceProvider.GetRequiredService<OrdenEvaluacionService>();
+            var options = await evaluation.GetOptionsAsync(default);
+            var foundBuyer = Assert.Single(options.Compradores);
+            Assert.Equal(buyer, foundBuyer.Id);
+            var foundSeller = Assert.Single(options.Vendedores);
+            Assert.Equal(seller, foundSeller.Id);
+            Assert.Equal(products, options.Productos.Select(p => p.Id).OrderBy(x => x).ToArray());
+            Assert.All(options.Productos, p => {
+                Assert.Equal(seller, p.VendedorId);
+                Assert.Equal(25m, p.PrecioB2C);
+                Assert.Equal(250m, p.PrecioB2B);
+            });
         }
         var actor = Guid.NewGuid();
         CrearOrdenRequest Request(int quantity = 1, TipoCliente channel = TipoCliente.B2C) => new(
@@ -144,6 +168,12 @@ public sealed class OrdenEvaluacionPostgresTests
         config["Payments:Provider"] = "Real";
         Assert.Equal(503, (await Assert.ThrowsAsync<EvaluacionOrdenException>(() =>
             Create(Request(), Guid.NewGuid().ToString()))).StatusCode);
+        using (var denied = provider.CreateScope())
+        {
+            var service = denied.ServiceProvider.GetRequiredService<OrdenEvaluacionService>();
+            Assert.Equal(503, (await Assert.ThrowsAsync<EvaluacionOrdenException>(() =>
+                service.GetOptionsAsync(default))).StatusCode);
+        }
         config["Payments:Provider"] = "Disabled";
         env.SetupGet(e => e.EnvironmentName).Returns("Production");
         Assert.Equal(503, (await Assert.ThrowsAsync<EvaluacionOrdenException>(() =>
