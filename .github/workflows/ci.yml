@@ -360,6 +360,22 @@ jobs:
           dotnet restore MarketplaceERP.sln
           dotnet build src/MarketplaceERP.API/MarketplaceERP.API.csproj --configuration Release --no-restore
 
+      # F495: exercise the exact EAN alias/rotation Up/Down and signed-
+      # webhook replay migrations against PG18 as well as the PG15 .NET job.
+      # Tests create and DROP only their own CI local disposable databases.
+      - name: F495 PG18 EAN rotation and bank replay invariants
+        env:
+          TEST_PG_CONNECTION: ${{ env.CONNECTION_STRING }}
+        run: |
+          dotnet test tests/MarketplaceERP.Catalog.Tests/MarketplaceERP.Catalog.Tests.csproj \
+            --configuration Release --no-restore \
+            --filter "FullyQualifiedName~F451EanReservationsMigrationPgTests" \
+            --logger "console;verbosity=minimal"
+          dotnet test tests/MarketplaceERP.Finance.Tests/MarketplaceERP.Finance.Tests.csproj \
+            --configuration Release --no-restore \
+            --filter "FullyQualifiedName~PostgresSchemaMigrationSmokeTests" \
+            --logger "console;verbosity=minimal"
+
       - name: Migrate and bootstrap disposable PostgreSQL only
         run: |
           DESCRIBE=$(dotnet run --project src/MarketplaceERP.API/MarketplaceERP.API.csproj --configuration Release --no-build --no-launch-profile -- --describe-maintenance-target)
