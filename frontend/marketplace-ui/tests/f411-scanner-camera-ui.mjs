@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const origin='http://127.0.0.1:4183';
 const sessionId='11111111-1111-4111-8111-111111111111';
 const valid='4006381333931';
+const historical='5901234123457'; // checksum-valid EAN already printed before rotation
 const invalid='2000000000014';
 const vite=spawn(process.execPath,[
   './node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','4183','--strictPort'
@@ -39,7 +40,7 @@ const fulfill=(route,body,status=200)=>route.fulfill({
   status,contentType:'application/json',body:JSON.stringify(body)
 });
 async function mockApi(page){
-  const s={posts:[],failNext:false,failGateway:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null,lookupCorrupt:null};
+  const s={posts:[],failNext:false,failGateway:false,successful:0,external:0,lookupDelayMs:0,lookupFailure:null,lookupCorrupt:null,aliasCorrupt:null};
   await page.route(url=>url.pathname.startsWith('/api/'),async route=>{
     const req=route.request(),url=new URL(req.url()),path=url.pathname,method=req.method();
     if(url.hostname!=='127.0.0.1'){s.external++;return route.abort();}
@@ -63,6 +64,15 @@ async function mockApi(page){
       s.successful++;
       return fulfill(route,{resultado:'Coincide',mensaje:'Lectura QA registrada',
         sku:'F411-TEST',nombre:'Producto de prueba',ubicacionCodigo:'A1',opciones:null});
+    }
+    if(path===('/api/productos/por-codigo/'+historical)&&method==='GET'){
+      const corrupt=s.aliasCorrupt;s.aliasCorrupt=null;
+      const canonical={id:'22222222-2222-4222-8222-222222222222',
+        sku:'F411-TEST',nombre:'Producto de prueba',codigoEAN:valid,
+        codigoLeido:historical,esAlias:true};
+      if(corrupt==='wrong-read')return fulfill(route,{...canonical,codigoLeido:valid});
+      if(corrupt==='missing-proof')return fulfill(route,{...canonical,esAlias:false});
+      return fulfill(route,canonical);
     }
     if(path===('/api/productos/por-codigo/'+valid)&&method==='GET'){
       // Capture each lookup's outcome BEFORE awaiting, so two overlapping
@@ -268,6 +278,31 @@ try{
     assert.equal(await qty.count(),0,'F440 must reject '+kind);
     assert.equal(state.posts.length,5,'F440 must make zero POST for '+kind);
   }
+  // F480: a physically old but valid EAN is safe only when the API
+  // attests codigoLeido and esAlias and provides the valid active EAN.
+  await scanner.fill(historical);
+  await scanner.press('Enter');
+  await page.getByText('Etiqueta histórica reconocida.',{exact:false})
+    .waitFor({timeout:8000});
+  assert.equal(state.posts.length,5,'Alias lookup MUST NOT post a count');
+  await qty.fill('4');
+  await qty.press('Enter');
+  await scanner.waitFor({state:'visible',timeout:10000});
+  assert.equal(state.posts.length,6,'Exactly one historic-code count');
+  assert.equal(state.posts[5].codigo,historical,
+    'Preserve physical alias, never silently replace with canonical EAN');
+  assert.equal(state.posts[5].cantidad,4);
+
+  for(const corrupt of ['wrong-read','missing-proof']){
+    state.aliasCorrupt=corrupt;
+    await scanner.fill(historical);
+    await scanner.press('Enter');
+    await page.getByText('No se pudo verificar el producto. Vuelve a intentarlo.')
+      .waitFor({timeout:8000});
+    await scanner.waitFor({state:'visible'});
+    assert.equal(state.posts.length,6,
+      'Malformed HTTP 200 alias cannot authorize inventory count: '+corrupt);
+  }
   await ctx.close();
 
   // F422: exercitar la ruta REAL de @zxing/browser a través de
@@ -357,7 +392,9 @@ try{
     buyerDenied:true,remoteApiCalls:0,
     f428LookupFailClosed:true,f428UnverifiedCannotSave:true,
     f429StaleLookupCannotClearNewScan:true,
-    cameraSyntheticDecode:true,cameraHardwareTested:false,usbHardwareTested:false,productionTouched:false
+    cameraSyntheticDecode:true,f480HistoricEanPreserved:true,
+    f480MalformedAliasRejected:true,cameraHardwareTested:false,
+    usbHardwareTested:false,productionTouched:false
   }));
 }finally{
   if(browser)await browser.close();
