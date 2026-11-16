@@ -29,6 +29,7 @@ try {
   const posts = [];
   let invoice;
   let failNext = false;
+  let failMatchOnce = false;
   await page.route('**/api/**', async route => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -41,7 +42,10 @@ try {
     }
     if (path === '/api/proveedores/logistica') return json({ items: [{ id: 'proveedor-1', nombreComercial: 'Proveedor de prueba', razonSocial: 'Proveedor de prueba', plazoCreditoDias: 20, otifHistorico: 99 }] });
     if (path === '/api/compras/productos-disponibles') return json({ total: products.length, pagina: 1, tamano: 25, items: products });
-    if (path === '/api/compras/match/historial') return json([]);
+    if (path === '/api/compras/match/historial') {
+      if (failMatchOnce) { failMatchOnce = false; return json({ mensaje: 'Historial temporalmente no disponible' }, 503); }
+      return json([]);
+    }
     if (path === '/api/compras/po' && request.method() === 'POST') {
       const body = request.postDataJSON();
       posts.push(body);
@@ -50,10 +54,14 @@ try {
       orders.push({ id: 'po-1', numeroPO: 'PO-MULTI-QA', proveedorNombre: body.proveedorNombre,
         estado: 'Enviada', montoTotal: Math.round(subtotal * 1.13 * 100) / 100, moneda: 'USD', terminosPago: body.terminosPago,
         fechaEmision: '2026-11-15T00:00:00Z', items: body.items.map((x, i) => ({ id: `item-${i}`, sku: x.sku, nombreProducto: x.nombreProducto, cantidadSolicitada: x.cantidad, cantidadRecibida: 0, precioUnitarioAcordado: x.precioUnitario, totalLinea: x.cantidad * x.precioUnitario })) });
-      return json({ id: 'po-1' }, 201);
+      // Reproduce el caso QA real: orden persistida + HTTP 201 sin cuerpo.
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '' });
     }
     if (path === '/api/compras/po') return json({ total: orders.length, ordenesCompra: orders });
-    if (path === '/api/compras/facturas') { invoice = request.postDataJSON(); return json({ id: 'factura-1' }, 201); }
+    if (path === '/api/compras/facturas') {
+      invoice = request.postDataJSON();
+      return route.fulfill({ status: 201, contentType: 'application/json', body: '' });
+    }
     return json({ mensaje: 'Endpoint fuera del fixture' }, 503);
   });
   await page.goto(base + '/login');
@@ -110,7 +118,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 1000 });
   failNext = true;
   await modal.getByRole('button', { name: 'Crear Orden', exact: true }).click();
-  await page.getByText('Error temporal de prueba', { exact: true }).waitFor();
+  await page.getByText(/Error temporal de prueba.*Verifica primero el listado/).waitFor();
   assert.equal(await modal.getByRole('table', { name: 'Productos de la orden' }).locator('tbody tr').count(), 10, 'Error debe conservar lista');
   await modal.getByRole('button', { name: 'Crear Orden', exact: true }).click();
   await modal.waitFor({ state: 'hidden' });
@@ -119,6 +127,12 @@ try {
   assert.equal(posts[1].items.length, 10);
   assert.equal(posts[1].fechaEntregaEsperada, '2026-12-01');
   assert.equal(posts[1].terminosPago, 'Crédito 25 días');
+  await page.getByText('PO-MULTI-QA', { exact: true }).waitFor();
+  await page.getByText('Orden de Compra Generada', { exact: true }).waitFor();
+  // El listado debe seguir mostrando las PO si falla solamente el historial.
+  failMatchOnce = true;
+  await page.getByRole('button', { name: 'Refrescar', exact: true }).click();
+  await page.getByText('No se pudo cargar el historial de 3-Way Match.', { exact: false }).waitFor();
   await page.getByText('PO-MULTI-QA', { exact: true }).waitFor();
   await page.getByRole('button', { name: /Factura/ }).click();
   const invoiceModal = page.locator('.modal');
@@ -134,7 +148,7 @@ try {
   assert.equal(invoice.montoTotal, 57.63);
   assert.equal(new Set(invoice.lineas.map(x => x.itemOrdenCompraId)).size, 10);
   assert.deepEqual(errors, []);
-  console.log('OK: edición, eliminación, duplicados, 10 productos, totales, error recuperable, una PO y detalle de factura.');
+  console.log('OK: 201 sin JSON, no hay falsa falla ni PO duplicada, lista parcial, edición, 10 productos y factura.');
 } catch (error) {
   console.error('URL:', page?.url(), 'Body:', await page?.locator('body').innerText().catch(() => ''), 'Vite:', output.slice(-1500));
   throw error;
