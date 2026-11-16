@@ -108,7 +108,7 @@ public class CoreDbContext : DbContext
             entity.Property(p => p.Direccion).HasMaxLength(300);
             entity.Property(p => p.CategoriaSuministro).HasMaxLength(100);
             entity.Property(p => p.PlazoCreditoDias).HasDefaultValue(30);
-            entity.Property(p => p.OtifHistorico).HasPrecision(5, 2).HasDefaultValue(95.0m);
+            entity.Property(p => p.OtifHistorico).HasPrecision(5, 2);
             entity.Property(p => p.Activo).HasDefaultValue(true);
             entity.Property(p => p.FechaRegistro).HasDefaultValueSql("NOW()");
 

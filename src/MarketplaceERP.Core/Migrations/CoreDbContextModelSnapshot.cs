@@ -136,11 +136,9 @@ namespace MarketplaceERP.Core.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<decimal>("OtifHistorico")
-                        .ValueGeneratedOnAdd()
+                    b.Property<decimal?>("OtifHistorico")
                         .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)")
-                        .HasDefaultValue(95.0m);
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<int>("PlazoCreditoDias")
                         .ValueGeneratedOnAdd()
