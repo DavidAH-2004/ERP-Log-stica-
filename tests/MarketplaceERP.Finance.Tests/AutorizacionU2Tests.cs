@@ -226,6 +226,7 @@ public class AutorizacionU2Tests
                 action.Name == nameof(ProductosController.ProveedoresDisponibles) ||
                 action.Name == nameof(ProductosController.CategoriasDisponibles) ||
                 action.Name == nameof(ProductosController.OpcionesAlta) ||
+                action.Name == nameof(ProductosController.SkuDisponible) ||
                 action.Name == nameof(ProductosController.Create) ||
                 action.Name == nameof(ProductosController.Update) ||
                 action.Name == nameof(ProductosController.Delete) ||
@@ -271,8 +272,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
         Assert.Equal(31, controllers.Length);
-        Assert.Equal(120, actions); // F660: adds Admin-only supplier registration.
-        Assert.Equal(121, routes); // F660: one new POST /api/proveedores.
+        Assert.Equal(121, actions); // F660 + consulta de disponibilidad de SKU.
+        Assert.Equal(122, routes); // F660 + GET /api/productos/sku-disponible.
     }
 
     [Theory]
