@@ -32,6 +32,68 @@ public class StagingThreeWayMatchGuardTests
     }
 
     [Fact]
+    public void AllowsGeneralInvoiceAuditsOnlyWithExplicitIsolatedQaOptIn()
+    {
+        var settings = Settings();
+        settings["Procurement:StagingThreeWayMatch:AllowIsolatedQaInvoices"] = "true";
+        settings["Procurement:StagingThreeWayMatch:ExpiresAtUtc"] = "2020-01-01T00:00:00Z";
+        settings["Procurement:StagingThreeWayMatch:InvoiceId"] = Guid.NewGuid().ToString();
+        var approvedHost = "ep-qa-isolated.c-15.us-east-1.aws.neon.tech";
+        var qaConnection = "Host=" + approvedHost
+            + ";Port=5432;Database=marketplaceerp_test;Username=marketplaceerp_test_owner"
+            + ";Password=fixture-only-secret;SslMode=VerifyFull;Channel Binding=Require";
+        settings["CONNECTION_STRING"] = qaConnection;
+        settings["ConnectionStrings:DefaultConnection"] = qaConnection;
+        settings["Deployment:ApprovedStagingHost"] = approvedHost;
+
+        var context = CreateContext(
+            new Validar3WayMatchRequest(Guid.NewGuid(), Guid.NewGuid(), 3),
+            paymentsDisabled: true,
+            settings);
+
+        new StagingThreeWayMatchGuardAttribute().OnActionExecuting(context);
+        Assert.Null(context.Result);
+    }
+
+    [Fact]
+    public void GeneralQaInvoiceAuditFailsClosedForAnyUnsafeTarget()
+    {
+        var settings = Settings();
+        settings["Procurement:StagingThreeWayMatch:AllowIsolatedQaInvoices"] = "true";
+        var approvedHost = "ep-qa-isolated.c-15.us-east-1.aws.neon.tech";
+        var qaConnection = "Host=" + approvedHost
+            + ";Port=5432;Database=marketplaceerp_test;Username=marketplaceerp_test_owner"
+            + ";Password=fixture-only-secret;SslMode=VerifyFull;Channel Binding=Require";
+        settings["CONNECTION_STRING"] = qaConnection;
+        settings["ConnectionStrings:DefaultConnection"] = qaConnection;
+        settings["Deployment:ApprovedStagingHost"] = approvedHost;
+        var mismatched = new Validar3WayMatchRequest(Guid.NewGuid(), Guid.NewGuid(), 3);
+
+        foreach (var key in new[]
+        {
+            "RENDER_SERVICE_NAME", "Deployment:Target", "Payments:Provider",
+            "Deployment:ApprovedStagingHost", "CONNECTION_STRING",
+            "ConnectionStrings:DefaultConnection"
+        })
+        {
+            var unsafeConfig = new Dictionary<string, string?>(settings)
+                { [key] = key == "RENDER_SERVICE_NAME" ? "marketplaceerp-api" : "UNSAFE" };
+            var context = CreateContext(mismatched, paymentsDisabled: true, unsafeConfig);
+            new StagingThreeWayMatchGuardAttribute().OnActionExecuting(context);
+            AssertBlocked(context);
+        }
+
+        var enabledPayments = CreateContext(mismatched, paymentsDisabled: false, settings);
+        new StagingThreeWayMatchGuardAttribute().OnActionExecuting(enabledPayments);
+        AssertBlocked(enabledPayments);
+
+        settings["Procurement:StagingThreeWayMatch:Enabled"] = "false";
+        var disabledFeature = CreateContext(mismatched, paymentsDisabled: true, settings);
+        new StagingThreeWayMatchGuardAttribute().OnActionExecuting(disabledFeature);
+        AssertBlocked(disabledFeature);
+    }
+
+    [Fact]
     public void BlocksWhenNoExplicitAllowlistIsConfigured()
     {
         var context = CreateContext(
