@@ -140,10 +140,10 @@ public class AutorizacionU2Tests
     [Fact]
     public async Task EvaluationOrderOptions_OnlyAllowAdminToReadOptions()
     {
-        Assert.Equal(401, await Probe(typeof(OrdenesController), "OpcionesEvaluacion", null));
-        Assert.Equal(403, await Probe(typeof(OrdenesController), "OpcionesEvaluacion", "Comprador"));
-        Assert.Equal(403, await Probe(typeof(OrdenesController), "OpcionesEvaluacion", "Vendedor"));
-        Assert.Equal(200, await Probe(typeof(OrdenesController), "OpcionesEvaluacion", "Admin"));
+        Assert.Equal(401, await Probe(typeof(OrdenEvaluacionController), "Options", null));
+        Assert.Equal(403, await Probe(typeof(OrdenEvaluacionController), "Options", "Comprador"));
+        Assert.Equal(403, await Probe(typeof(OrdenEvaluacionController), "Options", "Vendedor"));
+        Assert.Equal(200, await Probe(typeof(OrdenEvaluacionController), "Options", "Admin"));
     }
 
     [Fact]
@@ -281,8 +281,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
         Assert.Equal(31, controllers.Length);
-        Assert.Equal(122, actions); // F665: Admin-only OMS evaluation options.
-        Assert.Equal(123, routes); // F665: GET /api/ordenes/evaluacion/opciones.
+        Assert.Equal(121, actions); // OMS options already exist in OrdenEvaluacionController.
+        Assert.Equal(122, routes); // No duplicate route; preserve authorized endpoint count.
     }
 
     [Theory]

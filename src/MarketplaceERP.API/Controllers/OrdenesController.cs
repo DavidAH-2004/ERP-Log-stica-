@@ -39,31 +39,6 @@ public class OrdenesController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// Admin-only selection data for a bounded, isolated OMS evaluation.
-    /// Same environment, payment and stock safety gates as POST /api/ordenes.
-    /// </summary>
-    [HttpGet("evaluacion/opciones", Name = "OpcionesOrdenEvaluacion")]
-    [Authorize(Roles = "Admin")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> OpcionesEvaluacion(CancellationToken cancellationToken)
-    {
-        var service = HttpContext?.RequestServices?.GetService<OrdenEvaluacionService>();
-        if (service is null)
-            return StatusCode(503, new { mensaje = "Creación segura de órdenes no disponible." });
-        try
-        {
-            var opciones = await service.GetOptionsAsync(cancellationToken);
-            Response.Headers.CacheControl = "no-store";
-            return Ok(opciones);
-        }
-        catch (EvaluacionOrdenException ex)
-        {
-            return StatusCode(ex.StatusCode, new { mensaje = ex.Message });
-        }
-    }
-
     // Ruta nueva y separada: NO reutilizar el listado/KPIs global de Admin.
     // La identidad del vendedor debe venir solo del JWT, nunca de query/body.
     [HttpGet("mis-ordenes", Name = "ListarMisOrdenesVendedor")]
