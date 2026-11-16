@@ -168,6 +168,11 @@ jobs:
       - name: Classify npm security advisories (non-mutating)
         run: node scripts/p1-audit-dependencies.mjs
 
+      # F484: independent offline NO-GO on mismatched Production SHAs,
+      # broken restores, missing owner approval or active DB writers.
+      - name: F484 production cutover evidence gate (pure offline fixtures)
+        run: node scripts/f484-production-evidence-gate.test.mjs
+
       # 9. Verificar contratos de autenticacion y checkout
       - name: Test frontend auth
         working-directory: frontend/marketplace-ui

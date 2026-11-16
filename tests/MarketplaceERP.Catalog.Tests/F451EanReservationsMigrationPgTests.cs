@@ -48,6 +48,31 @@ public sealed class F451EanReservationsMigrationPgTests
         var p1 = Nuevo("F451-A", actual);
         var p2 = Nuevo("F451-B", "HISTORICO-INVALIDO");
         var p3 = Nuevo("F451-C", null);
+
+        // F482: deterministic SHA256 of all existing business identifiers
+        // and stock totals, computed independently on an uncached DB context.
+        // A migration Up/Down must never rewrite a product, seller or SKU.
+        async Task<string> FingerprintAsync()
+        {
+            await using var snapshotDb = NewContext();
+            var products = await snapshotDb.Productos.AsNoTracking()
+                .OrderBy(p => p.Id)
+                .Select(p => new { p.Id, p.Sku, p.CodigoEAN, p.VendedorId })
+                .ToListAsync();
+            var inventory = await snapshotDb.StockFisico.AsNoTracking()
+                .OrderBy(s => s.Id)
+                .Select(s => new { s.Id, s.ProductoId, s.CantidadTotal })
+                .ToListAsync();
+            var payload = string.Join("\n", products.Select(p =>
+                $"{p.Id:D}|{p.Sku}|{p.CodigoEAN ?? "<NULL>"}|{p.VendedorId:D}")) +
+                "\nSTOCK\n" + string.Join("\n", inventory.Select(s =>
+                $"{s.Id:D}|{s.ProductoId:D}|{s.CantidadTotal}"));
+            return Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(payload)));
+        }
+
+        string? fingerprintBefore = null;
         try
         {
             await using (var db = NewContext())
@@ -55,7 +80,9 @@ public sealed class F451EanReservationsMigrationPgTests
                 await db.GetService<IMigrator>().MigrateAsync(previous);
                 db.Productos.AddRange(p1, p2, p3);
                 await db.SaveChangesAsync();
+                fingerprintBefore = await FingerprintAsync();
                 await db.Database.MigrateAsync();
+                Assert.Equal(fingerprintBefore, await FingerprintAsync());
                 Assert.Contains(migration, await db.Database.GetAppliedMigrationsAsync());
                 Assert.Equal(actual, (await db.Productos.SingleAsync(x => x.Id == p1.Id)).CodigoEAN);
                 Assert.Equal("HISTORICO-INVALIDO",
@@ -78,7 +105,9 @@ public sealed class F451EanReservationsMigrationPgTests
             {
                 await db.GetService<IMigrator>().MigrateAsync(previous);
                 Assert.DoesNotContain(migration, await db.Database.GetAppliedMigrationsAsync());
+                Assert.Equal(fingerprintBefore, await FingerprintAsync());
                 await db.Database.MigrateAsync();
+                Assert.Equal(fingerprintBefore, await FingerprintAsync());
             }
             Assert.Equal(1, await CountReservations());
 
@@ -106,9 +135,24 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal(actual, (await db.Productos.SingleAsync(x => x.Id == p1.Id)).CodigoEAN);
                 Assert.Equal(emitted, (await db.Productos.SingleAsync(x => x.Id == p3.Id)).CodigoEAN);
                 Assert.Equal(3, await db.Productos.CountAsync());
+                var beforeBlockedDown = await FingerprintAsync();
                 await Assert.ThrowsAnyAsync<Exception>(
                     () => db.GetService<IMigrator>().MigrateAsync(previous));
                 Assert.Contains(migration, await db.Database.GetAppliedMigrationsAsync());
+                Assert.Equal(beforeBlockedDown, await FingerprintAsync());
+                // F482: failed rollback must preserve F470 SQL functions;
+                // otherwise a wrongly ordered rollback could disable
+                // future reconciliation and strand historic labels.
+                await using var connection = new NpgsqlConnection(scratch.ConnectionString);
+                await connection.OpenAsync();
+                await using var stillExists = new NpgsqlCommand("""
+                    SELECT EXISTS(
+                        SELECT 1 FROM pg_proc p
+                        JOIN pg_namespace n ON n.oid=p.pronamespace
+                        WHERE n.nspname='catalog' AND p.proname='f470_aprobar_rotacion'
+                    )
+                    """, connection);
+                Assert.True((bool)(await stillExists.ExecuteScalarAsync())!);
             }
 
             // F454: approval may append events (versions) for one request
