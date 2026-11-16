@@ -31,7 +31,7 @@ public class Proveedor
     /// <summary>
     /// Calificación y métrica OTIF histórica del proveedor (ej. 98.5%)
     /// </summary>
-    public decimal OtifHistorico { get; set; } = 95.0m;
+    public decimal? OtifHistorico { get; set; }
 
     public bool Activo { get; set; } = true;
     public DateTime FechaRegistro { get; set; } = DateTime.UtcNow;

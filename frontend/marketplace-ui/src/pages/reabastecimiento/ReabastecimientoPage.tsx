@@ -70,7 +70,7 @@ export default function ReabastecimientoPage() {
         <div>
           <div className="td-primary">{row.proveedorMaestroNombre || row.proveedorNombre}</div>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-            OTIF {row.otifHistorico?.toFixed(1) ?? '—'}% · {row.plazoCreditoDias && row.plazoCreditoDias > 0 ? `${row.plazoCreditoDias} días` : 'Contado'}
+            OTIF {row.otifHistorico == null ? 'Sin historial' : row.otifHistorico.toFixed(1) + '%'} · {row.plazoCreditoDias && row.plazoCreditoDias > 0 ? `${row.plazoCreditoDias} días` : 'Contado'}
           </div>
           {row.contactoProveedor && <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{row.contactoProveedor}</div>}
         </div>

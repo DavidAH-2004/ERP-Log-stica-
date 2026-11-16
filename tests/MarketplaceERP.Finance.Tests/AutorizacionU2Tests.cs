@@ -79,6 +79,7 @@ public class AutorizacionU2Tests
     [InlineData(typeof(KpisDashboardController), "ObtenerDashboard")]
     [InlineData(typeof(LiquidacionesController), "Historial")]
     [InlineData(typeof(UsuariosController), "Crear")]
+    [InlineData(typeof(ProveedoresController), "Registrar")]
     [InlineData(typeof(RotacionesEanController), "Historial")]
     [InlineData(typeof(RotacionesEanController), "Solicitar")]
     [InlineData(typeof(RotacionesEanController), "Aprobar")]
@@ -271,8 +272,8 @@ public class AutorizacionU2Tests
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
         // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
         Assert.Equal(31, controllers.Length);
-        Assert.Equal(120, actions); // F499: includes six PR #72 selector endpoints and F360 logout.
-        Assert.Equal(121, routes); // One extra Productos/GetAlertasStock alias.
+        Assert.Equal(121, actions); // F660 supplier registration plus main SKU endpoints, both retained.
+        Assert.Equal(122, routes); // Includes F660 POST /api/proveedores and main product aliases.
     }
 
     [Theory]
