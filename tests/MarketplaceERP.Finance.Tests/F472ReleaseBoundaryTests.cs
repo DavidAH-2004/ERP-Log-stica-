@@ -108,12 +108,12 @@ public sealed class F472ReleaseBoundaryTests
     [InlineData("4006381333931")]
     [InlineData("5901234123457")]
     [InlineData("2000000000014")]
-    public void F487_ExternalOrInvalidEANRotationRejectedBeforeDatabase(string proposed)
+    public async Task F487_ExternalOrInvalidEANRotationRejectedBeforeDatabase(string proposed)
     {
         using var db = new CatalogDbContext(new DbContextOptionsBuilder<CatalogDbContext>()
             .UseInMemoryDatabase("f487-" + Guid.NewGuid()).Options);
         var service = new RotacionEanService(db);
-        Assert.Throws<ArgumentException>(() =>
+        await Assert.ThrowsAsync<ArgumentException>(() =>
             service.SolicitarAsync(
                 Guid.NewGuid(), Guid.NewGuid(), proposed,
                 "Justificación de política de prefijo interno",
