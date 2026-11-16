@@ -6,6 +6,7 @@
  */
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
 
 const sha = /^[a-f0-9]{40}$/i;
 const yes = value => value === true;
@@ -47,7 +48,7 @@ export function evaluateReleaseEvidence(evidence) {
   return {status:missing.length===0?'READY_FOR_MANUAL_REVIEW':'NO_GO',missing};
 }
 
-if(process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if(process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const file = process.argv[2];
   if(!file){console.error('F484_NO_GO: provide a local verified evidence JSON file');process.exitCode=2;}
   else {
