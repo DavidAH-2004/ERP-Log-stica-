@@ -24,13 +24,26 @@ public sealed class DistributedLoginThrottleTests
     private const string CorrectPassword = "f369-disposable-correct-only";
     private const string BadPassword = "f369-invalid-password-only";
 
-    private static AuthController Controller(CoreDbContext db, bool enabled)
+    private static AuthController Controller(
+        CoreDbContext db, bool enabled, bool peerLimiter = false,
+        bool verifiedIngress = false, string? remoteIp = null,
+        string? spoofedHeader = null)
     {
         var config = new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?>
             {
-                ["Auth:EnableDistributedAccountLoginThrottle"] = enabled ? "true" : "false"
+                ["Auth:EnableDistributedAccountLoginThrottle"] = enabled ? "true" : "false",
+                ["Auth:EnableDistributedPeerLoginThrottle"] = peerLimiter ? "true" : "false",
+                ["Auth:VerifiedIngressPeerIdentity"] = verifiedIngress ? "true" : "false"
             }).Build();
+        var context = new DefaultHttpContext();
+        if (remoteIp is not null)
+            context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(remoteIp);
+        if (spoofedHeader is not null)
+        {
+            context.Request.Headers["X-Forwarded-For"] = spoofedHeader;
+            context.Request.Headers["CF-Connecting-IP"] = spoofedHeader;
+        }
         return new AuthController(db,
             Options.Create(new JwtSettings
             {
@@ -43,7 +56,7 @@ public sealed class DistributedLoginThrottleTests
         {
             ControllerContext = new ControllerContext
             {
-                HttpContext = new DefaultHttpContext()
+                HttpContext = context
             }
         };
     }
@@ -174,6 +187,43 @@ public sealed class DistributedLoginThrottleTests
             {
                 var rows = await db.LoginThrottles.AsNoTracking().ToListAsync();
                 Assert.Contains(rows, row => row.Requests == 1);
+            }
+
+            // F492: 21 requests from one TCP peer with 21 DIFFERENT spoofed
+            // XFF/CF headers, crossing contexts and sharing one DB window.
+            async Task<IActionResult> PeerAttempt(string? peer, string? spoof,
+                bool certified = true)
+            {
+                await using var db = OpenDb();
+                return await Controller(db, false, peerLimiter: true,
+                    verifiedIngress: certified, remoteIp: peer,
+                    spoofedHeader: spoof).Login(
+                        new LoginRequest("f492-unknown@erp.invalid", BadPassword),
+                        CancellationToken.None);
+            }
+
+            var samePeer = Enumerable.Range(0, 21)
+                .Select(i => PeerAttempt("203.0.113.12", "9.9.9." + i));
+            var limited = await Task.WhenAll(samePeer);
+            Assert.Equal(20, limited.Count(x => x is UnauthorizedObjectResult));
+            Assert.Equal(1, limited.Count(x => x is ObjectResult o && o.StatusCode == 429));
+            Assert.IsType<UnauthorizedObjectResult>(
+                await PeerAttempt("203.0.113.13", "9.9.9.99"));
+            Assert.Equal(503, (await PeerAttempt("203.0.113.13", null, false)
+                as ObjectResult)?.StatusCode);
+            Assert.Equal(503, (await PeerAttempt(null, null)
+                as ObjectResult)?.StatusCode);
+
+            await using (var db = OpenDb())
+            {
+                var rows = await db.LoginThrottles.AsNoTracking().ToListAsync();
+                Assert.Equal(5, rows.Count);
+                Assert.All(rows, row =>
+                {
+                    Assert.Matches("^[0-9A-F]{64}$", row.AccountKey);
+                    Assert.DoesNotContain("203.0.113.", row.AccountKey);
+                    Assert.DoesNotContain("f492", row.AccountKey);
+                });
             }
         }
         finally

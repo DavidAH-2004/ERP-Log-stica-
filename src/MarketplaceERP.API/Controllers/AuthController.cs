@@ -43,6 +43,8 @@ public class AuthController : ControllerBase
     private readonly JwtSettings _jwtSettings;
     private readonly bool _enforceSessionVersion;
     private readonly bool _distributedAccountThrottle;
+    private readonly bool _distributedPeerThrottle;
+    private readonly bool _verifiedIngressPeerIdentity;
     private readonly ILogger<AuthController> _logger;
     private readonly PasswordHasher<Usuario> _passwordHasher;
     private static readonly Usuario _dummyUsuario = new() { Email = "dummy@security.internal" };
@@ -59,6 +61,8 @@ public class AuthController : ControllerBase
         _jwtSettings = jwtOptions.Value;
         _enforceSessionVersion = configuration?.GetValue<bool>("Auth:EnableSessionVersionCheck") ?? false;
         _distributedAccountThrottle = configuration?.GetValue<bool>("Auth:EnableDistributedAccountLoginThrottle") ?? false;
+        _distributedPeerThrottle = configuration?.GetValue<bool>("Auth:EnableDistributedPeerLoginThrottle") ?? false;
+        _verifiedIngressPeerIdentity = configuration?.GetValue<bool>("Auth:VerifiedIngressPeerIdentity") ?? false;
         _logger = logger;
         _passwordHasher = new PasswordHasher<Usuario>();
     }
@@ -94,11 +98,55 @@ public class AuthController : ControllerBase
         // OFF by default until the Core login_throttle migration is verified.
         if (normalizedEmail.Length > 254)
             return BadRequest(new { mensaje = "El correo electrónico no es válido." });
+        // F492: shared PostgreSQL throttle for the actual TCP peer; never
+        // accept X-Forwarded-For or CF-Connecting-IP from clients.
+        // Both flags are OFF by default. A proxy/NAT can aggregate many users.
+        if (_distributedPeerThrottle)
+        {
+            var peer = HttpContext.Connection.RemoteIpAddress;
+            if (!_verifiedIngressPeerIdentity || peer is null)
+            {
+                _logger.LogWarning("Distributed peer login limiter requires ingress attestation.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+            peer = peer.IsIPv4MappedToIPv6 ? peer.MapToIPv4() : peer;
+            if (peer.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                // IPv6 privacy addresses in one /64 share a single allowance.
+                var octets = peer.GetAddressBytes();
+                Array.Clear(octets, 8, 8);
+                peer = new System.Net.IPAddress(octets);
+            }
+            try
+            {
+                var attempts = await ConsumeDistributedLoginAttemptAsync(
+                    "marketplaceerp:peer-throttle:v1\0" + peer, cancellationToken);
+                if (attempts > 20)
+                {
+                    Response.Headers["Retry-After"] = "60";
+                    _logger.LogWarning("Límite distribuido de login por peer superado.");
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { mensaje = "Demasiados intentos. Vuelve a intentarlo más tarde." });
+                }
+            }
+            catch (Exception ex) when (
+                ex is System.Data.Common.DbException || ex is DbUpdateException ||
+                ex is InvalidOperationException || ex is OperationCanceledException)
+            {
+                _logger.LogWarning("No se pudo verificar el límite distribuido por peer.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+        }
+
         if (_distributedAccountThrottle)
         {
             try
             {
-                var attempts = await ConsumeDistributedLoginAttemptAsync(normalizedEmail, cancellationToken);
+                var attempts = await ConsumeDistributedLoginAttemptAsync(
+                    "marketplaceerp:login-throttle:v1\0" + normalizedEmail,
+                    cancellationToken);
                 if (attempts > 5)
                 {
                     Response.Headers["Retry-After"] = "60";
@@ -249,11 +297,11 @@ public class AuthController : ControllerBase
     /// This is an ACCOUNT limiter, not trusted client-IP identification.
     /// </summary>
     private async Task<int> ConsumeDistributedLoginAttemptAsync(
-        string normalizedEmail, CancellationToken cancellationToken)
+        string domainSeparatedIdentity, CancellationToken cancellationToken)
     {
         var key = Convert.ToHexString(HMACSHA256.HashData(
             Encoding.UTF8.GetBytes(_jwtSettings.Key),
-            Encoding.UTF8.GetBytes("marketplaceerp:login-throttle:v1\0" + normalizedEmail)));
+            Encoding.UTF8.GetBytes(domainSeparatedIdentity)));
 
         await _coreDb.Database.OpenConnectionAsync(cancellationToken);
         try
