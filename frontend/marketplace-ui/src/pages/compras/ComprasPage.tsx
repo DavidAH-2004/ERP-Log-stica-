@@ -101,16 +101,27 @@ export default function ComprasPage() {
     setLoading(true);
     setErrorCarga('');
     try {
-      const [poRes, matchRes] = await Promise.all([
+      // Una falla del historial 3-Way Match no debe ocultar PO ya persistidas.
+      const [poResult, matchResult] = await Promise.allSettled([
         comprasApi.listarPO({ tamano: 50 }),
         comprasApi.historialMatch(),
       ]);
-      setOrdenesCompra(poRes.ordenesCompra || []);
-      setMatches(matchRes || []);
+      const errores: string[] = [];
+      if (poResult.status === 'fulfilled') {
+        setOrdenesCompra(poResult.value.ordenesCompra || []);
+      } else {
+        setOrdenesCompra([]);
+        errores.push('No se pudieron cargar las órdenes de compra.');
+      }
+      if (matchResult.status === 'fulfilled') {
+        setMatches(matchResult.value || []);
+      } else {
+        setMatches([]);
+        errores.push('No se pudo cargar el historial de 3-Way Match.');
+      }
+      setErrorCarga(errores.join(' '));
     } catch (error) {
-      setOrdenesCompra([]);
-      setMatches([]);
-      setErrorCarga(error instanceof Error ? error.message : 'No se pudieron cargar Compras y 3-Way Match desde la API.');
+      setErrorCarga(error instanceof Error ? error.message : 'No se pudieron cargar los datos de Compras.');
     } finally {
       setLoading(false);
     }
@@ -209,7 +220,7 @@ export default function ComprasPage() {
       await loadData();
     } catch (error) {
       const mensaje = error instanceof Error ? error.message : 'No fue posible crear la Orden de Compra.';
-      toast.error('Error al crear PO', mensaje);
+      toast.error('No se pudo confirmar la PO', mensaje + ' Verifica primero el listado de órdenes antes de intentar crearla otra vez.');
     } finally {
       creandoPo.current = false;
       setSavingPo(false);
@@ -416,7 +427,7 @@ export default function ComprasPage() {
       </div>
 
       {errorCarga && (
-        <AlertBanner variant="danger" title="Compras no disponible" message={errorCarga} action={{ label: 'Reintentar', onClick: loadData }} />
+        <AlertBanner variant="danger" title="No se pudieron cargar todos los datos" message={errorCarga} action={{ label: 'Reintentar', onClick: loadData }} />
       )}
 
       {/* Attention List (Efferd Dashboard #6: Items requiring operational attention) */}

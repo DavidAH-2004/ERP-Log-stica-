@@ -91,3 +91,43 @@ test('logout en modo BFF envía CSRF y no un token Bearer', async () => {
   assert.equal(requests[0].headers.Authorization, undefined);
   assert.equal(requests[0].credentials, 'same-origin');
 });
+
+test('POST 201 sin cuerpo confirma la operación y no produce falso error JSON', async () => {
+  let llamadas = 0;
+  const client = loadClient(async () => {
+    llamadas++;
+    return new Response(null, { status: 201 });
+  }, fakeStorage());
+  assert.equal(await client.apiClient.post('/api/compras/po', { items: [] }), undefined);
+  assert.equal(await client.apiClient.postVoid('/api/compras/po', { items: [] }), undefined);
+  assert.equal(llamadas, 2);
+});
+
+test('Comandos de Compras aceptan HTTP 2xx incluso si el proxy no devuelve JSON', async () => {
+  let llamadas = 0;
+  const client = loadClient(async () => {
+    llamadas++;
+    return new Response('OK sin JSON', { status: 201, headers: { 'Content-Type': 'text/plain' } });
+  }, fakeStorage());
+  assert.equal(await client.apiClient.postVoid('/api/compras/po', { items: [] }), undefined);
+  assert.equal(await client.apiClient.putVoid('/api/compras/po/id/recibir', {}), undefined);
+  assert.equal(llamadas, 2);
+});
+
+test('Una respuesta GET 200 vacía es error, no un listado inventado', async () => {
+  const client = loadClient(async () => new Response(null, { status: 200 }), fakeStorage());
+  await assert.rejects(
+    client.apiClient.get('/api/compras/po'),
+    error => error.status === 200 && /sin datos/.test(error.message)
+  );
+});
+
+test('HTTP 500 en creación sigue siendo error y nunca se confunde con confirmación', async () => {
+  const client = loadClient(async () => new Response(JSON.stringify({ mensaje: 'Fallo guardando la PO' }), {
+    status: 500, headers: { 'Content-Type': 'application/json' },
+  }), fakeStorage());
+  await assert.rejects(
+    client.apiClient.postVoid('/api/compras/po', { items: [] }),
+    error => error.status === 500 && /Fallo guardando la PO/.test(error.message)
+  );
+});
