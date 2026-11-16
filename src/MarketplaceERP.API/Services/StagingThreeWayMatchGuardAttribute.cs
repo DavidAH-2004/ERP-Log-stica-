@@ -16,6 +16,10 @@ namespace MarketplaceERP.API.Services;
 public sealed class StagingThreeWayMatchGuardAttribute : ActionFilterAttribute
 {
     private const string EnabledKey = "Procurement:StagingThreeWayMatch:Enabled";
+    // Development-only opt-in: permit normal 3-Way Match for QA invoices.
+    // It is never valid without the isolated Render staging identity, disabled
+    // external payments, and the independently approved Neon direct endpoint.
+    private const string AllQaInvoicesKey = "Procurement:StagingThreeWayMatch:AllowIsolatedQaInvoices";
     private const string InvoiceIdKey = "Procurement:StagingThreeWayMatch:InvoiceId";
     private const string OrderIdKey = "Procurement:StagingThreeWayMatch:OrderId";
     private const string ReceivedQuantityKey = "Procurement:StagingThreeWayMatch:ReceivedQuantity";
@@ -70,7 +74,38 @@ public sealed class StagingThreeWayMatchGuardAttribute : ActionFilterAttribute
             request.OrdenCompraId == allowedOrderId &&
             request.CantidadRecibidaBodega == allowedQuantity;
 
-        var authorizationValid =
+        // The single synthetic-invoice allowlist remains the default. A separate
+        // explicit switch permits testing all ordinary invoices ONLY on isolated
+        // STAGING and only when external payments remain strictly disabled.
+        var allQaInvoicesEnabled =
+            enabled &&
+            bool.TryParse(configuration[AllQaInvoicesKey], out var allowAllQaInvoices) &&
+            allowAllQaInvoices &&
+            stagingIdentity &&
+            paymentsRemainDisabled;
+
+        var isolatedQaTargetVerified = false;
+        if (allQaInvoicesEnabled)
+        {
+            // Do not trust environment markers alone: verify the actual runtime
+            // connection against the approved isolated Neon endpoint, without
+            // connecting to a database or logging any connection string.
+            try
+            {
+                StagingDatabaseTargetGuard.ValidateRuntime(
+                    configuration,
+                    configuration["RENDER_SERVICE_NAME"],
+                    "Production", // ASP.NET hosting identity required by staging startup.
+                    configuration.GetConnectionString("DefaultConnection"));
+                isolatedQaTargetVerified = true;
+            }
+            catch (InvalidOperationException)
+            {
+                // Fail closed; the existing 503 guard response is intentional.
+            }
+        }
+
+        var syntheticInvoiceAuthorized =
             enabled &&
             stagingIdentity &&
             paymentsRemainDisabled &&
@@ -78,7 +113,7 @@ public sealed class StagingThreeWayMatchGuardAttribute : ActionFilterAttribute
             expiryConfigured &&
             expiresAtUtc > DateTimeOffset.UtcNow;
 
-        if (authorizationValid)
+        if (syntheticInvoiceAuthorized || (isolatedQaTargetVerified && request is not null))
             return;
 
         context.HttpContext.Response.Headers.CacheControl = "no-store";
