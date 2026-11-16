@@ -103,7 +103,11 @@ public static class WompiSvWebhookPreflight
         JsonElement value = default;
         foreach (var property in parent.EnumerateObject())
         {
-            if (!property.NameEquals(name)) continue;
+            // F478: reject case-variant duplicates; another JSON consumer
+            // might be case-insensitive and choose a different value.
+            if (!string.Equals(property.Name, name,
+                    StringComparison.OrdinalIgnoreCase)) continue;
+            if (!property.NameEquals(name)) return null;
             value = property.Value;
             if (++count != 1) return null;
         }

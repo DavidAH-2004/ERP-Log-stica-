@@ -66,6 +66,20 @@ public sealed class WompiSvWebhookPreflightTests
     }
 
     [Fact]
+    public void F478_ValidSignedWebhookWithAmbiguousFieldCaseIsRejected()
+    {
+        // These payloads still carry mathematically VALID HMAC signatures.
+        Assert.Equal(WompiSvWebhookPreflight.Resultado.Rechazado,
+            Run(Body(true, ",\n\"esproductiva\":false")));
+        Assert.Equal(WompiSvWebhookPreflight.Resultado.Rechazado,
+            Run(Body(true, ",\n\"idtransaccion\":\"00000000-0000-0000-0000-000000000000\"")));
+        var nested = Body(true).Replace(
+            "\"Aplicativo\":{\"Id\":\"" + App + "\"}",
+            "\"Aplicativo\":{\"Id\":\"" + App + "\",\"id\":\"" + Guid.NewGuid() + "\"}");
+        Assert.Equal(WompiSvWebhookPreflight.Resultado.Rechazado, Run(nested));
+    }
+
+    [Fact]
     public void F471_InvalidStatusAndJsonAreNeverConfirmed()
     {
         Assert.Equal(WompiSvWebhookPreflight.Resultado.Rechazado,

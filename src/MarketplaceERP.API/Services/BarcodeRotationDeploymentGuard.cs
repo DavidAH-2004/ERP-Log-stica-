@@ -16,12 +16,17 @@ public static class BarcodeRotationDeploymentGuard
             throw new InvalidOperationException(
                 "F472: la rotación requiere lectura histórica de EAN habilitada.");
 
-        // This remains a deliberate NO-GO until physical reader/label testing,
-        // data recovery and explicit #65/#70 Production authorization.
-        if (rotation && string.Equals(renderServiceName,
-                "marketplaceerp-api", StringComparison.Ordinal))
+        // F477: service name missing or renamed is NOT authorization.
+        // Only isolated staging with payments Disabled may enable rotation.
+        if (rotation &&
+            !(string.Equals(renderServiceName, StagingDatabaseTargetGuard.ServiceName,
+                StringComparison.Ordinal) &&
+              string.Equals(config["Deployment:Target"],
+                StagingDatabaseTargetGuard.TargetMarker, StringComparison.Ordinal) &&
+              string.Equals(config["Payments:Provider"], "Disabled",
+                StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException(
-                "F472: rotación de EAN en producción bloqueada hasta aprobación del release.");
+                "F477: rotación solo permitida en staging aislado con pagos deshabilitados.");
     }
 
     private static bool ReadFlag(IConfiguration config, string name)

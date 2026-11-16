@@ -361,6 +361,54 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal("23505",
                     Assert.IsType<PostgresException>(conflict.InnerException).SqlState);
             }
+            // F479: race two distinct approvals for the same product;
+            // exactly one wins after PG serializes the product row lock.
+            var parallelA = Guid.NewGuid();
+            var parallelB = Guid.NewGuid();
+            var candidateA = CodigoBarras.GenerarInterno(90);
+            var candidateB = CodigoBarras.GenerarInterno(91);
+            await using (var writerA = NewContext())
+            await using (var writerB = NewContext())
+            {
+                var serviceA = new RotacionEanService(writerA);
+                var serviceB = new RotacionEanService(writerB);
+                Assert.Equal("Solicitada", await serviceA.SolicitarAsync(
+                    parallelA, p1.Id, candidateA, justification, requester));
+                Assert.Equal("Solicitada", await serviceB.SolicitarAsync(
+                    parallelB, p1.Id, candidateB, justification, requester));
+                static async Task<string> Approve(RotacionEanService svc, Guid id, Guid actor)
+                {
+                    try { return await svc.AprobarAsync(id, actor); }
+                    catch (PostgresException error) { return error.SqlState; }
+                }
+                var answers = await Task.WhenAll(
+                    Approve(serviceA, parallelA, approver),
+                    Approve(serviceB, parallelB, approver));
+                Assert.Equal(1, answers.Count(x => x == "Ejecutada"));
+                Assert.Equal(1, answers.Count(x => x == "23514"));
+            }
+            await using (var db = NewContext())
+            {
+                var actualFinal = (await db.Productos.SingleAsync(p => p.Id == p1.Id)).CodigoEAN;
+                Assert.Contains(actualFinal, new[] { candidateA, candidateB });
+                var history = await new RotacionEanService(db).HistorialAsync(p1.Id);
+                Assert.Equal(1, history.Count(e =>
+                    (e.SolicitudId == parallelA || e.SolicitudId == parallelB) &&
+                    e.Estado == "Ejecutada"));
+                foreach (var code in new[] { actual, second, third, actualFinal! })
+                {
+                    Assert.Equal(p1.Id, Assert.Single(
+                        await ConsultaCodigoEan.BuscarAsync(
+                            db, code, p1.VendedorId, permitirHistoricos: true)).Id);
+                    Assert.Empty(await ConsultaCodigoEan.BuscarAsync(
+                        db, code, p2.VendedorId, permitirHistoricos: true));
+                }
+                Assert.Equal(3, await db.Productos.CountAsync());
+                Assert.Equal(2, await db.StockFisico
+                    .Where(s => s.ProductoId == p1.Id).Select(s => s.CantidadTotal)
+                    .SingleAsync());
+            }
+
         }
         finally
         {

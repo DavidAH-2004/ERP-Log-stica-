@@ -30,7 +30,20 @@ public sealed class F472ReleaseBoundaryTests
             ("Barcodes:EnableEanRotation", "true"));
         Assert.Throws<InvalidOperationException>(() =>
             BarcodeRotationDeploymentGuard.Validate(config, "marketplaceerp-api"));
-        BarcodeRotationDeploymentGuard.Validate(config, "marketplaceerp-api-staging");
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(config, "marketplaceerp-api-staging"));
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(config, null));
+        var isolated = Config(
+            ("Barcodes:EnableHistoricalAliasLookup", "true"),
+            ("Barcodes:EnableEanRotation", "true"),
+            ("Deployment:Target", StagingDatabaseTargetGuard.TargetMarker),
+            ("Payments:Provider", "Disabled"));
+        BarcodeRotationDeploymentGuard.Validate(isolated, "marketplaceerp-api-staging");
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(isolated, "marketplaceerp-api"));
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(isolated, null));
     }
 
     [Fact]
@@ -43,6 +56,20 @@ public sealed class F472ReleaseBoundaryTests
             BarcodeRotationDeploymentGuard.Validate(
                 Config(("Barcodes:EnableEanRotation", "perhaps")), "marketplaceerp-api-staging"));
         BarcodeRotationDeploymentGuard.Validate(Config(), "marketplaceerp-api");
+        var legacy = Config(
+            ("Barcodes:EnableHistoricalAliasLookup", "true"),
+            ("Barcodes:EnableEanRotation", "true"),
+            ("Deployment:Target", "NeonTest"),
+            ("Payments:Provider", "Disabled"));
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(legacy, "marketplaceerp-api-staging"));
+        var mockPayments = Config(
+            ("Barcodes:EnableHistoricalAliasLookup", "true"),
+            ("Barcodes:EnableEanRotation", "true"),
+            ("Deployment:Target", StagingDatabaseTargetGuard.TargetMarker),
+            ("Payments:Provider", "Mock"));
+        Assert.Throws<InvalidOperationException>(() =>
+            BarcodeRotationDeploymentGuard.Validate(mockPayments, "marketplaceerp-api-staging"));
     }
 
     [Fact]
