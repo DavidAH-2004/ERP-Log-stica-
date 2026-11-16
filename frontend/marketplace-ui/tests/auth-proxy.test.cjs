@@ -391,5 +391,7 @@ test('Vercel protege scripts y evita embedding y APIs externas', () => {
   assert.ok(!csp.includes("script-src 'self' 'unsafe-inline'"));
   assert.equal(header('X-Content-Type-Options'), 'nosniff');
   assert.equal(header('X-Frame-Options'), 'DENY');
-  assert.ok(header('Permissions-Policy').includes('camera=()'));
+  assert.ok(header('Permissions-Policy').includes('camera=(self)'));
+  assert.ok(header('Permissions-Policy').includes('microphone=()'));
+  assert.ok(header('Permissions-Policy').includes('geolocation=()'));
 });
