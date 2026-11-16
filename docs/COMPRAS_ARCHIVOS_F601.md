@@ -56,6 +56,8 @@ simultáneas mediante el índice UNIQUE de PostgreSQL y tratamiento de colisión
 F613: ensayo en PostgreSQL local efímero: el documento sobrevive a un DbContext
 nuevo, la segunda inserción del mismo OrdenCompraId es rechazada y el Down de
 la migración se bloquea cuando existen PDFs reales. La base de prueba se destruye.
-Compilación .NET y Vite aprobadas, pruebas de autenticación frontend 31/31 PASS.
+Compilación .NET y Vite aprobadas. F615: 33/33 pruebas frontend de autenticación
+aprobadas, incluidas respuestas PDF binarias sin alteraciones por el proxy normal
+y por el BFF HttpOnly (JWT añadido solo en el servidor; cookies externas suprimidas).
 Todavía NO están validadas las pruebas end-to-end en Render/Neon Development ni todas
 las transiciones de PO. NO publicar en Production antes de esas pruebas.
