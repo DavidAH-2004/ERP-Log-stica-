@@ -1,5 +1,8 @@
 # F400 — Puerta de aceptación del sistema de códigos de barras (MarketplaceERP)
 
+**Actualización F493/F494 (16-nov-2026):** recepción **solo de código en `development`** en PR #68 [review 5914115693](https://github.com/Marzza01/ERP-Log-stica-/pull/68) `COMMENTED`, sin aprobar merge. CI head `58f8daa`: [Actions 43786038161](https://github.com/Marzza01/ERP-Log-stica-/actions/runs/43786038161) 4/4 PASS (PG15 .NET, frontend, PG18 Chromium, Windows). Issue #70 registra F400 de código/CI revisado; **la aceptación física y publicación en main siguen abiertas**. Los hitos históricos abajo describen la evolución y pueden contener pendientes que después se implementaron; usar el estado actual de #70 para la decisión de release.
+
+
 **Fecha:** 2026-11-15  
 **Fuente fijada:** `alxmariotejada-byte/erp-sistema-de-codigo-de-barras-@523a82ddca72450e51640d8491dfd3ae0ef1b1a4`  
 **Destino aprobado para desarrollo:** `Marzza01/ERP-Log-stica-:development`  
@@ -18,7 +21,7 @@
 | Pistola USB/Bluetooth | Campo de entrada interpreta 13 dígitos + Enter | **Falta lector físico y comprobación de terminador/idioma** |
 | Conteos de inventario por escáner | F399 E2E PostgreSQL PASS (Admin y dos solicitudes concurrentes) | Vendedor denegado hasta separación completa por almacén |
 | Idempotencia y hallazgos | F404 PASS; rechazo de UUID reutilizado con cantidad alterada, un hallazgo por lectura | Sin mutación de stock directa por escaneo |
-| Substituir o regenerar un EAN existente | **No integrado**; se conserva código histórico | Requiere historia de alias, auditoría persistente e invalidación/reconciliación de etiquetas |
+| Rotar EAN existente (operación opt-in, no normalización masiva) | **F451/F470/F481 integrados en código `development`**, Admin solicita, otro Admin aprueba, solicitante cancela pendiente, alias histórico inmutable y lectura WMS de etiquetas anteriores; CI PostgreSQL 15 + navegador PG18 | **OFF por defecto** y F451/F470 aún no migradas a Neon DEV; hardware, backup/restore y aprobación productiva pendientes |
 | Normalización masiva del catálogo del fork | **Rechazada por riesgo de pérdida de identificadores** | Nunca ejecutar su `UPDATE` o limpieza de EAN en arranque |
 
 ## 2. Evidencia automatizada

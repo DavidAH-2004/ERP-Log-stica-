@@ -5,3 +5,7 @@
 - No almacena cuerpo original ni datos de tarjeta, CVV o secreto. No tiene endpoint, DI, cron ni instrucciones de cobro. Un evento en este inbox **NO** acredita dinero recibido.
 - Prueba PostgreSQL 15 efímera valida inserción, replay, conflicto, entorno sandbox, firma incorrecta e inmutabilidad; también verifica migraciones de los tres DbContext.
 - **Gate #69 sigue abierto:** falta proveedor contratado y sandbox, verificación de estado por API bancaria, correlación autorizada con orden y moneda, recuperación/reembolsos durables, monitoreo, conciliación y aprobación separada. `Payments:Provider=Disabled` obligatorio.
+
+## F494 — carrera real concurrente en PostgreSQL descartable
+
+Se agregó a la prueba de migraciones `PostgresSchemaMigrationSmokeTests` un ensayo con **16 conexiones/DbContexts independientes** que envían simultáneamente el mismo webhook sintético HMAC verificado. La restricción única de PostgreSQL permite **1 `NuevoRequiereConsulta` + 15 `RepetidoSinMutacion`**; un segundo cuerpo firmado distinto con la misma identidad devuelve `ConflictoBloqueado`. La tabla conserva dos identidades independientes y el trigger impide UPDATE. No llama al proveedor, no hace cargos ni conciliación, no habilita endpoint y no satisface todavía los criterios comerciales de #69.

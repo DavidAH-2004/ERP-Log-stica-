@@ -197,12 +197,43 @@ public sealed class PostgresSchemaMigrationSmokeTests : IAsyncLifetime
         Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.Rechazado,
             await inbox.RegistrarAsync(normal, new string('0', 64), mockSecret,
                 accountId, applicationId, transactionId, 10.25m));
+        // F494: independent DbContexts/connections race with one signed
+        // transaction identity. A unique constraint, not in-memory locks,
+        // must decide which request can append. No double settlement path.
+        var concurrentTxn = Guid.NewGuid();
+        var concurrentBody = Bytes(System.Text.Json.JsonSerializer.Serialize(new
+        {
+            IdCuenta = accountId, IdTransaccion = concurrentTxn,
+            Aplicativo = new { Id = applicationId }, Monto = 10.25m,
+            EsProductiva = true, ResultadoTransaccion = "ExitosaAprobada"
+        }));
+        var concurrentSignature = Signature(concurrentBody);
+        async Task<MarketplaceERP.Finance.Services.ResultadoInboxWompiSv> Race()
+        {
+            await using var fresh = provider.CreateAsyncScope();
+            var separateContext = fresh.ServiceProvider.GetRequiredService<FinanceDbContext>();
+            return await new MarketplaceERP.Finance.Services.WompiSvWebhookInbox(
+                separateContext).RegistrarAsync(
+                    concurrentBody, concurrentSignature, mockSecret,
+                    accountId, applicationId, concurrentTxn, 10.25m);
+        }
+        var concurrent = await Task.WhenAll(Enumerable.Range(0, 16)
+            .Select(_ => Race()));
+        Assert.Single(concurrent, outcome =>
+            outcome == MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.NuevoRequiereConsulta);
+        Assert.Equal(15, concurrent.Count(outcome =>
+            outcome == MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.RepetidoSinMutacion));
+        var tamperedSameIdentity = Bytes(System.Text.Encoding.UTF8.GetString(concurrentBody) + "\n");
+        Assert.Equal(MarketplaceERP.Finance.Services.ResultadoInboxWompiSv.ConflictoBloqueado,
+            await inbox.RegistrarAsync(tamperedSameIdentity, Signature(tamperedSameIdentity),
+                mockSecret, accountId, applicationId, concurrentTxn, 10.25m));
+
         await using (var sql = new NpgsqlConnection(_ephemeralConnection))
         {
             await sql.OpenAsync();
             await using var countInbox = new NpgsqlCommand(
                 "SELECT count(*) FROM finance.webhooks_pago_inbox", sql);
-            Assert.Equal(1L, (long)(await countInbox.ExecuteScalarAsync())!);
+            Assert.Equal(2L, (long)(await countInbox.ExecuteScalarAsync())!);
             await using var mutate = new NpgsqlCommand("""
                 UPDATE finance.webhooks_pago_inbox SET "Estado"='RequiereConsulta'
                 WHERE "TransaccionId"=@id
