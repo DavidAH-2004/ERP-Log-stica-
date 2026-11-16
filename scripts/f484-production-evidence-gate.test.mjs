@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {evaluateReleaseEvidence} from './f484-production-evidence-gate.mjs';
 const sha='a'.repeat(40);
+const clock = new Date('2026-11-16T00:10:00Z');
+const evaluate = evidence => evaluateReleaseEvidence(evidence, clock);
 const pass={
   mainSha:sha, renderLiveSha:sha, vercelProductionSha:sha,
   renderBranch:'main',vercelProductionBranch:'main',
@@ -14,7 +16,19 @@ const pass={
   artifactId:'F484-SYNTHETIC-ONLY',evidenceCapturedAtUtc:'2026-11-16T00:00:00Z',
   productionBackendReachable:true,productionFrontendReachable:true
 };
-assert.equal(evaluateReleaseEvidence(pass).status,'READY_FOR_MANUAL_REVIEW');
+assert.equal(evaluate(pass).status,'READY_FOR_MANUAL_REVIEW');
+assert.equal(evaluate({...pass,evidenceCapturedAtUtc:'2026-11-15T23:10:00Z'}).status,'READY_FOR_MANUAL_REVIEW');
+for(const [date,marker] of [
+  ['2026-11-15T22:00:00Z','release evidence expired'],
+  ['2026-11-16T00:20:00Z','release evidence from the future'],
+  ['2026-02-30T00:00:00Z','evidenceCapturedAtUtc'],
+  ['2026-11-16T00:00:00+00:00','evidenceCapturedAtUtc'],
+  ['2026-11-16T00:00:00.000Z','evidenceCapturedAtUtc']
+]) {
+  const result=evaluate({...pass,evidenceCapturedAtUtc:date});
+  assert.equal(result.status,'NO_GO',date);
+  assert.ok(result.missing.includes(marker),date);
+}
 for(const [key,value] of [
   ['renderLiveSha','b'.repeat(40)],
   ['vercelProductionSha','c'.repeat(40)],
@@ -35,7 +49,7 @@ for(const [key,value] of [
   ['productionBackendReachable',false]
 ]) {
   const invalid={...pass,[key]:value};
-  const result=evaluateReleaseEvidence(invalid);
+  const result=evaluate(invalid);
   assert.equal(result.status,'NO_GO',key);
   assert.ok(result.missing.length>0,key);
 }
@@ -47,12 +61,12 @@ const observed={
   renderBranch:'integracion/main-reconciliacion-20261102',
   vercelProductionSha:'b'.repeat(40),vercelProductionBranch:'unknown'
 };
-assert.equal(evaluateReleaseEvidence(observed).status,'NO_GO');
-assert.equal(evaluateReleaseEvidence({}).status,'NO_GO');
+assert.equal(evaluate(observed).status,'NO_GO');
+assert.equal(evaluate({}).status,'NO_GO');
 
 const observedFromConnectedProviders = JSON.parse(
   readFileSync(new URL('../docs/F486_PRODUCTION_NO_GO_PUBLIC_EVIDENCE.json',import.meta.url),'utf8'));
-const verified = evaluateReleaseEvidence(observedFromConnectedProviders);
+const verified = evaluate(observedFromConnectedProviders);
 assert.equal(verified.status,'NO_GO');
 assert.ok(verified.missing.some(x=>x.includes('Render SHA')));
 assert.ok(verified.missing.some(x=>x.includes('Vercel public alias SHA')));

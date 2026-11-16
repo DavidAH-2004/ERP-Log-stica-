@@ -12,7 +12,14 @@ const sha = /^[a-f0-9]{40}$/i;
 const yes = value => value === true;
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 
-export function evaluateReleaseEvidence(evidence) {
+const MAX_EVIDENCE_AGE_MS = 60 * 60 * 1000;
+const MAX_FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const exactUtc = value => typeof value === 'string' &&
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) &&
+  !Number.isNaN(Date.parse(value)) &&
+  new Date(value).toISOString() === value.replace('Z', '.000Z');
+
+export function evaluateReleaseEvidence(evidence, now = new Date()) {
   const missing = [];
   if(!evidence || typeof evidence !== 'object' || Array.isArray(evidence))
     return {status:'NO_GO', missing:['evidence object absent']};
@@ -31,9 +38,18 @@ export function evaluateReleaseEvidence(evidence) {
     ['stagingDatabaseIndependent', yes(evidence.stagingDatabaseIndependent)],
     ['explicitOwnerProductionAuthorization', yes(evidence.explicitOwnerProductionAuthorization)],
     ['artifactId', nonempty(evidence.artifactId)],
-    ['evidenceCapturedAtUtc', /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(evidence.evidenceCapturedAtUtc ?? '')]
+    ['evidenceCapturedAtUtc', exactUtc(evidence.evidenceCapturedAtUtc)]
   ]) if(!valid)missing.push(key);
 
+  // A successful release approval must not be reusable days later.
+  // Time is injectable only to make offline fixtures deterministic.
+  if (exactUtc(evidence.evidenceCapturedAtUtc)) {
+    const ageMs = now.getTime() - Date.parse(evidence.evidenceCapturedAtUtc);
+    if (!Number.isFinite(ageMs) || ageMs > MAX_EVIDENCE_AGE_MS)
+      missing.push('release evidence expired');
+    if (ageMs < -MAX_FUTURE_CLOCK_SKEW_MS)
+      missing.push('release evidence from the future');
+  }
   if(evidence.renderBranch !== 'main') missing.push('Render production branch must be main');
   if(evidence.vercelProductionBranch !== 'main') missing.push('Vercel public production alias must be main');
   if(sha.test(evidence.mainSha ?? '') &&
