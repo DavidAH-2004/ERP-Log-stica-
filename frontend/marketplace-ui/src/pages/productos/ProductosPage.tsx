@@ -9,7 +9,7 @@ import DataTable from '../../components/ui/DataTable';
 import Modal from '../../components/ui/Modal';
 import AlertBanner from '../../components/ui/AlertBanner';
 import { useToast } from '../../context/ToastContext';
-import { productosApi, type CrearProductoRequest, type OpcionesAltaProducto } from '../../api/productos';
+import { productosApi, type CrearProductoRequest, type OpcionesAltaProducto, type OrdenProductos } from '../../api/productos';
 import type { Producto } from '../../types';
 
 export default function ProductosPage() {
@@ -17,6 +17,10 @@ export default function ProductosPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCat, setSelectedCat] = useState('');
+  const [ordenCatalogo, setOrdenCatalogo] = useState<OrdenProductos>('sku');
+  const [categoriasFiltro, setCategoriasFiltro] = useState<string[]>([]);
+  const [proveedoresDisponibles, setProveedoresDisponibles] = useState<string[]>([]);
+  const [errorProveedores, setErrorProveedores] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -51,6 +55,14 @@ export default function ProductosPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
+    let vigente = true;
+    productosApi.categoriasDisponibles()
+      .then(items => { if (vigente) setCategoriasFiltro(items); })
+      .catch(() => { if (vigente) setCategoriasFiltro([]); });
+    return () => { vigente = false; };
+  }, [modalOpen]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
@@ -61,8 +73,8 @@ export default function ProductosPage() {
     setErrorCarga('');
     try {
       const res = debouncedSearch || selectedCat
-        ? await productosApi.buscar({ q: debouncedSearch || undefined, categoria: selectedCat || undefined, pagina: page, tamano: PAGE_SIZE })
-        : await productosApi.listar(page, PAGE_SIZE);
+        ? await productosApi.buscar({ q: debouncedSearch || undefined, categoria: selectedCat || undefined, pagina: page, tamano: PAGE_SIZE, orden: ordenCatalogo })
+        : await productosApi.listar(page, PAGE_SIZE, ordenCatalogo);
       if (requestId !== lastRequest.current) return;
       setProductos(res.items ?? []);
       setTotal(res.total ?? 0);
@@ -74,28 +86,34 @@ export default function ProductosPage() {
     } finally {
       if (requestId === lastRequest.current) setLoading(false);
     }
-  }, [debouncedSearch, selectedCat, page]);
+  }, [debouncedSearch, selectedCat, ordenCatalogo, page]);
 
   useEffect(() => { void loadData(); return () => { lastRequest.current++; }; }, [loadData]);
 
   // Datos reales desde Core, solo para ALTA. No inventar GUID y no
   // exigir modificar categorías/vendedores al editar productos existentes.
   useEffect(() => {
-    if (!modalOpen || editingId) return;
+    if (!modalOpen) return;
     let vigente = true;
     setOpcionesAlta(null);
     setErrorOpciones('');
-    void productosApi.opcionesAlta().then(ref => {
-      if (!vigente) return;
-      setOpcionesAlta(ref);
-      setForm(f => ({
-        ...f,
-        vendedorId: ref.vendedores.length === 1 ? ref.vendedores[0].id : '',
-        categoriaId: '',
-      }));
-    }).catch(e => {
-      if (vigente) setErrorOpciones(e instanceof Error ? e.message : 'No se pudo verificar la referencia en Core.');
-    });
+    setProveedoresDisponibles([]);
+    setErrorProveedores('');
+    void Promise.all([productosApi.opcionesAlta(), productosApi.proveedoresDisponibles()])
+      .then(([ref, proveedores]) => {
+        if (!vigente) return;
+        setOpcionesAlta(ref);
+        setProveedoresDisponibles(proveedores);
+        if (!editingId) setForm(f => ({
+          ...f,
+          vendedorId: ref.vendedores.length === 1 ? ref.vendedores[0].id : '',
+          categoriaId: '',
+        }));
+      }).catch(e => {
+        if (!vigente) return;
+        setErrorOpciones(e instanceof Error ? e.message : 'No se pudieron verificar las referencias de Core.');
+        setErrorProveedores('No se pudo cargar el maestro de proveedores.');
+      });
     return () => { vigente = false; };
   }, [modalOpen, editingId]);
 
@@ -154,6 +172,8 @@ export default function ProductosPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      if (!editingId && !proveedoresDisponibles.includes(form.proveedorNombre))
+        throw new Error('Selecciona un proveedor activo registrado en Core.');
       if (editingId) {
         await productosApi.actualizar(editingId, form);
         toast.success('Producto Actualizado', `El SKU ${form.sku} se actualizó correctamente.`);
@@ -305,10 +325,8 @@ export default function ProductosPage() {
         </div>
 
         <div style={{ width: '220px' }}>
-          <input
-            type="search"
-            aria-label="Filtrar por categoría exacta"
-            placeholder="Categoría exacta (opcional)"
+          <select
+            aria-label="Filtrar por categoría registrada"
             value={selectedCat}
             onChange={e => { setSelectedCat(e.target.value); setPage(1); }}
             style={{
@@ -316,7 +334,27 @@ export default function ProductosPage() {
               border: '1px solid var(--border)', background: 'var(--bg-surface)',
               color: 'var(--text-primary)', fontSize: '0.875rem', boxSizing: 'border-box',
             }}
-          />
+          >
+            <option value="">Todas las categorías</option>
+            {selectedCat && !categoriasFiltro.includes(selectedCat) && <option value={selectedCat}>{selectedCat}</option>}
+            {categoriasFiltro.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div style={{ width: '210px' }}>
+          <select
+            aria-label="Ordenar catálogo de SKU"
+            value={ordenCatalogo}
+            onChange={e => { setOrdenCatalogo(e.target.value as OrdenProductos); setPage(1); }}
+            style={{
+              width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px',
+              border: '1px solid var(--border)', background: 'var(--bg-surface)',
+              color: 'var(--text-primary)', fontSize: '0.875rem', boxSizing: 'border-box',
+            }}
+          >
+            <option value="sku">Orden por SKU</option>
+            <option value="recientes">Más recientes primero</option>
+            <option value="antiguos">Más antiguos primero</option>
+          </select>
         </div>
       </div>
 
@@ -521,24 +559,18 @@ export default function ProductosPage() {
                 </label>
                 <select
                   value={form.categoriaNombre}
-                  disabled={!editingId}
-                  onChange={e => setForm(f => ({ ...f, categoriaNombre: e.target.value }))}
+                  disabled={!editingId || !opcionesAlta}
+                  onChange={e => setForm(f => ({ ...f, categoriaNombre: e.target.value,
+                    categoriaId: opcionesAlta?.categorias.find(c => c.nombre === e.target.value)?.id ?? f.categoriaId }))}
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
                 >
-                  {!editingId && (
+                  {(!editingId || !opcionesAlta?.categorias.some(c => c.nombre === form.categoriaNombre)) && (
                     <option value={form.categoriaNombre}>
-                      {form.categoriaId ? form.categoriaNombre : 'Selecciona una categoría de Core arriba'}
+                      {editingId ? `${form.categoriaNombre} (valor histórico)` :
+                        form.categoriaId ? form.categoriaNombre : 'Selecciona la categoría de Core arriba'}
                     </option>
                   )}
-                  {editingId && (
-                    <>
-                      <option value="Tecnología">Tecnología</option>
-                      <option value="Audio & Video">Audio & Video</option>
-                      <option value="Periféricos Gamer">Periféricos Gamer</option>
-                      <option value="Cómputo">Cómputo</option>
-                      <option value="Accesorios">Accesorios</option>
-                    </>
-                  )}
+                  {editingId && opcionesAlta?.categorias.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
               </div>
 
@@ -546,12 +578,20 @@ export default function ProductosPage() {
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
                   Proveedor
                 </label>
-                <input
-                  type="text"
+                <select
+                  required
                   value={form.proveedorNombre}
+                  disabled={!opcionesAlta || Boolean(errorProveedores)}
                   onChange={e => setForm(f => ({ ...f, proveedorNombre: e.target.value }))}
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-                />
+                >
+                  <option value="">Seleccionar proveedor registrado</option>
+                  {editingId && form.proveedorNombre && !proveedoresDisponibles.includes(form.proveedorNombre) && (
+                    <option value={form.proveedorNombre}>{form.proveedorNombre} (histórico, sin vincular)</option>
+                  )}
+                  {proveedoresDisponibles.map(nombre => <option key={nombre} value={nombre}>{nombre}</option>)}
+                </select>
+                {errorProveedores && <p role="alert" style={{ color: 'var(--red)', fontSize: 12 }}>{errorProveedores}</p>}
               </div>
             </div>
 

@@ -33,6 +33,43 @@ public class FulfillmentController : ControllerBase
     }
 
     /// <summary>
+    /// Órdenes elegibles para empaquetar: EnProceso, con picking completado y sin paquete existente.
+    /// La selección no autoriza el empaque: el POST vuelve a validar las reglas transaccionales.
+    /// </summary>
+    [HttpGet("ordenes-para-empaque")]
+    public async Task<IActionResult> OrdenesParaEmpaque(
+        [FromQuery] string? buscar = null,
+        [FromQuery] int pagina = 1,
+        [FromQuery] int tamano = 25,
+        CancellationToken cancellationToken = default)
+    {
+        if (pagina < 1 || tamano is < 1 or > 100 || ((long)pagina - 1) * tamano > int.MaxValue)
+            return BadRequest(new { mensaje = "Paginación inválida." });
+
+        var completas = (await _fulfillmentService.ListarPickListsAsync(
+            EstadoPicking.Completado, cancellationToken))
+            .Select(p => p.OrdenId).Distinct().ToArray();
+        var conPaquete = (await _fulfillmentService.ListarPaquetesAsync(
+            cancellationToken: cancellationToken))
+            .Select(p => p.OrdenId).Distinct().ToArray();
+        var query = _financeDb.Ordenes.AsNoTracking()
+            .Where(o => o.Estado == EstadoOrden.EnProceso &&
+                        completas.Contains(o.Id) && !conPaquete.Contains(o.Id));
+        if (!string.IsNullOrWhiteSpace(buscar))
+        {
+            var texto = buscar.Trim();
+            query = query.Where(o => o.NumeroOrden.Contains(texto));
+        }
+
+        var total = await query.CountAsync(cancellationToken);
+        var items = await query.OrderByDescending(o => o.FechaCreacion).ThenBy(o => o.Id)
+            .Skip((pagina - 1) * tamano).Take(tamano)
+            .Select(o => new { o.Id, o.NumeroOrden })
+            .ToListAsync(cancellationToken);
+        return Ok(new { total, pagina, tamano, items });
+    }
+
+    /// <summary>
     /// Genera la lista de recolección (Pick List) con ruta óptima S-Shape para una orden.
     /// Actualiza el estado de la orden en el OMS a EnProceso (Preparación).
     /// </summary>
