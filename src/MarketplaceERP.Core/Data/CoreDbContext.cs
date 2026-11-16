@@ -23,6 +23,7 @@ public class CoreDbContext : DbContext
     public DbSet<ReglaComision> ReglasComision => Set<ReglaComision>();
     public DbSet<Proveedor> Proveedores => Set<Proveedor>();
     public DbSet<Usuario> Usuarios => Set<Usuario>();
+    public DbSet<LoginThrottle> LoginThrottles => Set<LoginThrottle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +116,17 @@ public class CoreDbContext : DbContext
             entity.HasIndex(p => p.Nit);
         });
 
+        // ── F369: distributed login throttle ─────────────────────────────────
+        modelBuilder.Entity<LoginThrottle>(entity =>
+        {
+            entity.ToTable("login_throttle");
+            entity.HasKey(e => e.AccountKey);
+            entity.Property(e => e.AccountKey).HasMaxLength(64).IsRequired();
+            entity.Property(e => e.WindowStartUtc).HasColumnType("timestamp with time zone").IsRequired();
+            entity.Property(e => e.Requests).IsRequired();
+            entity.HasIndex(e => e.WindowStartUtc);
+        });
+
         // ── Usuario ───────────────────────────────────────────────────────────
         modelBuilder.Entity<Usuario>(entity =>
         {
@@ -127,6 +139,8 @@ public class CoreDbContext : DbContext
             entity.Property(u => u.Rol).HasMaxLength(50).IsRequired();
             entity.Property(u => u.Nombre).HasMaxLength(200).IsRequired();
             entity.Property(u => u.Activo).HasDefaultValue(true);
+            entity.Property(u => u.VersionSesion).HasDefaultValue(0);
+
             entity.Property(u => u.FechaRegistro).HasDefaultValueSql("NOW()");
 
             entity.HasOne(u => u.Vendedor)

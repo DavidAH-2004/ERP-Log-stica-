@@ -118,6 +118,13 @@ public sealed class EvaluadorConciliacionPago
             return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                 "La referencia de pago local no coincide con la de la orden.");
 
+        // F443: malformed local payment intent cannot be used to query a
+        // future bank provider. This is advisory-only; no stock, payment or
+        // accounting mutation may follow an invalid monetary record.
+        if (!ValidacionIntegridadPago.MontoMonedaValidos(intento.Monto, intento.Moneda))
+            return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
+                "Importe o moneda del intento local no válidos: revisión manual obligatoria.");
+
         ConsultaPagoResult? resultado;
         try
         {
@@ -144,8 +151,11 @@ public sealed class EvaluadorConciliacionPago
         {
             case EstadoCobroProveedor.Confirmado:
             {
-                var transaccion = resultado.TransaccionId?.Trim();
-                if (string.IsNullOrWhiteSpace(transaccion) || transaccion.Length > 200)
+                // F448: never silently normalize a bank transaction identifier.
+                // A different ID after trimming can conceal a provider mismatch;
+                // control characters can also poison audit/export records.
+                var transaccion = resultado.TransaccionId;
+                if (!ValidacionIntegridadPago.IdProveedorValido(transaccion))
                     return Evaluacion(ordenId, DecisionConciliacionPago.RequiereRevisionManual,
                         "El proveedor confirmo un cargo sin identificador de transaccion valido.");
 

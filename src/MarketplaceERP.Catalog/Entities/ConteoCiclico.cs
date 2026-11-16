@@ -34,6 +34,8 @@ public class ConteoCiclico
     public int? PrimerConteo { get; set; }
     public int? SegundoConteo { get; set; }
     public Guid? AjusteInventarioId { get; set; }
+    // F399: optional link to scanner session, legacy counts remain unchanged.
+    public Guid? SesionConteoId { get; set; }
 
     public string? Observaciones { get; set; }
     public string? CreadoPor { get; set; }

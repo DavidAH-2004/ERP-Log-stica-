@@ -52,11 +52,10 @@ public static class FinanceServiceExtensions
         // ── Checkout ─────────────────────────────────────────────────────────
         services.AddScoped<CheckoutOrchestrator>();
 
-        // ── Recuperación administrada, bloqueada por defecto en HTTP ──────────
-        // No se registra IPaymentRecoveryGateway: no existe proveedor de
-        // recuperación real ni simulador habilitado automáticamente.
-        services.AddScoped<EvaluadorConciliacionPago>(sp => ActivatorUtilities.CreateInstance<EvaluadorConciliacionPago>(sp));
-        services.AddScoped<RecuperacionFinancieraService>(sp => ActivatorUtilities.CreateInstance<RecuperacionFinancieraService>(sp));
+        // F441: No recovery gateway has been approved. Fail closed at DI:
+        // do not register evaluation/refund orchestration services either.
+        // Sandboxed unit tests instantiate them explicitly with mock gateways.
+        // Production activation requires separate audited provider wiring.
 
         // ── Procurement / 3-Way Match ─────────────────────────────────────────
         services.AddScoped<ITresWayMatchingService, TresWayMatchingService>();

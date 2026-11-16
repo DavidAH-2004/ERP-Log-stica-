@@ -1,3 +1,5 @@
+import { bffCookieProxy } from './bffCookieMode.js';
+
 // Runs before the SPA rewrite. Vercel supplies VERCEL_ENV for each deployment.
 export const config = { matcher: '/api/:path*' };
 
@@ -21,6 +23,12 @@ export default async function middleware(request) {
   if (!origin) return new Response('API de ensayo no configurada.', { status: 503,
     headers: { 'Cache-Control': 'no-store' } });
   if (!incoming.pathname.startsWith('/api/')) return new Response(null, { status: 404 });
+
+  // F353: explicitly gated prototype. Production and ordinary Preview stay on
+  // their established bearer path until frontend/browser E2E migration is approved.
+  if (process.env.VERCEL_ENV === 'preview' && process.env.ERP_COOKIE_BFF_MODE === 'enabled') {
+    return bffCookieProxy(request, origin);
+  }
 
   const upstreamPath = incoming.pathname === '/api/health' ? '/health'
     : incoming.pathname === '/api/health/ready' ? '/health/ready'

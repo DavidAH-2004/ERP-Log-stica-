@@ -328,5 +328,54 @@ public class CatalogImportPreservesWmsTests
         (await db.Productos.CountAsync()).Should().Be(1);
     }
 
+    [Theory]
+    [InlineData("4006381333931", "")]
+    [InlineData("4006381333931", "5901234123457")]
+    [InlineData("7410000000191", "5901234123457")]
+    [InlineData("", "5901234123457")]
+    public async Task F415_ReimportarSkuExistente_PreservaEANConIndependenciaDelCsv(
+        string originalEan, string incomingEan)
+    {
+        var options = new DbContextOptionsBuilder<CatalogDbContext>()
+            .UseInMemoryDatabase($"F415BarcodeImmutable_{Guid.NewGuid():N}")
+            .Options;
+        await using var db = new CatalogDbContext(options);
+        var service = new CatalogImportService(db, NullLogger<CatalogImportService>.Instance);
+        var vendor = Guid.NewGuid();
+        var category = Guid.NewGuid();
+        const string categoria = "Electrónica y Tecnología";
+
+        async Task Importar(string fila)
+        {
+            using var csv = new MemoryStream(Encoding.UTF8.GetBytes(Header + "\n" + fila + "\n"));
+            var result = await service.ImportarCatalogoCsvAsync(csv, vendor, category);
+            result.Exitosos.Should().Be(1);
+            result.Errores.Should().Be(0);
+        }
+
+        await Importar(Row("F415-EXISTING", categoria, 15, 2, 25m));
+        var producto = await db.Productos.SingleAsync();
+        var id = producto.Id;
+        producto.CodigoEAN = originalEan;
+        await db.SaveChangesAsync();
+        var stockBefore = await db.StockFisico.AsNoTracking().SingleAsync();
+
+        var filaModificada = Row("F415-EXISTING", categoria, 999, 3, 35m)
+            .Replace("\"Activo\",\"\",\"Ficha técnica\"",
+                     $"\"Activo\",\"{incomingEan}\",\"Ficha técnica\"");
+        await Importar(filaModificada);
+
+        var actual = await db.Productos.AsNoTracking().SingleAsync();
+        actual.Id.Should().Be(id);
+        actual.CodigoEAN.Should().Be(originalEan,
+            "un CSV maestro no puede cambiar el identificador de etiquetas existentes");
+        actual.PrecioB2C.Should().Be(35m,
+            "los demás datos maestros sí pueden actualizarse");
+        actual.StockMinimo.Should().Be(3);
+        var stockAfter = await db.StockFisico.AsNoTracking().SingleAsync();
+        stockAfter.Id.Should().Be(stockBefore.Id);
+        stockAfter.CantidadTotal.Should().Be(stockBefore.CantidadTotal);
+    }
+
 
 }

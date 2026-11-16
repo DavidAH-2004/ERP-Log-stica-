@@ -32,6 +32,9 @@ if (await MaintenanceCommand.RunMaintenanceIfRequestedAsync(command, async () =>
 var builder = WebApplication.CreateBuilder(args);
 
 // Ambos modos usan la misma selección de destino. Ninguno abre la conexión aquí.
+// F472: enforce barcode rollout prerequisites before opening HTTP or DB.
+BarcodeRotationDeploymentGuard.Validate(
+    builder.Configuration, Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME"));
 var databaseConnection = DatabaseConnectionConfiguration.Resolve(builder.Configuration);
 StagingDatabaseTargetGuard.Validate(builder.Configuration,
     Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME"),
@@ -51,15 +54,23 @@ var jwtSettings = builder.Configuration
     .Get<JwtSettings>()
     ?? throw new InvalidOperationException("La configuración JWT es obligatoria. Verifica appsettings.json o variables de entorno.");
 
-builder.Services.AddMarketplaceSecurity(jwtSettings);
+// F360: enable only after Core migration + staged cutover verification.
+builder.Services.AddMarketplaceSecurity(jwtSettings,
+    builder.Configuration.GetValue<bool>("Auth:EnableSessionVersionCheck"));
 
 // ── Rate Limiting nativo para Login ───────────────────────────────────────────
+// F458: treat edge headers as untrusted by default. An operator must verify
+// the ingress rewrites CF-Connecting-IP on every public request before opt-in.
+var renderServiceForRateLimit = Environment.GetEnvironmentVariable("RENDER_SERVICE_NAME");
+var confiarCabeceraCfVerificada = builder.Configuration
+    .GetValue<bool>("Auth:TrustRenderCfConnectingIp");
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy("LoginLimiter", httpContext =>
     {
-        var ip = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ip = DeploymentHttpSecurity.LoginRateLimitPartition(
+            httpContext, renderServiceForRateLimit, confiarCabeceraCfVerificada);
         return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ip,
             factory: _ => new FixedWindowRateLimiterOptions
@@ -94,7 +105,12 @@ builder.Services.AddCors(options =>
 builder.Services.AddCoreServices(builder.Configuration);
 builder.Services.AddCatalogServices(builder.Configuration);
 builder.Services.AddFinanceServices(builder.Configuration, builder.Environment.IsDevelopment());
+builder.Services.AddScoped<MarketplaceERP.API.Services.ComprasArchivoPdfService>();
 builder.Services.AddScoped<MarketplaceERP.API.Services.ReservasExpiracionService>();
+// F402: asignación explícita de EAN, sin normalización automática al iniciar.
+builder.Services.AddScoped<MarketplaceERP.Catalog.Services.CodigoBarrasAsignacionService>();
+// F470: Admin two-person rotation is enabled only with BOTH barcode flags.
+builder.Services.AddScoped<MarketplaceERP.Catalog.Services.RotacionEanService>();
 builder.Services.AddScoped<MarketplaceERP.API.Services.OrdenEvaluacionService>();
 
 builder.Services.AddControllers(options =>
@@ -169,6 +185,11 @@ if (app.Environment.IsProduction())
 }
 
 app.UseCors();
+
+// F367: built-in privacy-safe status/latency telemetry, including 401/429/503.
+// Keep this before authentication and rate limiting so rejected requests are counted.
+// No Authorization, cookies, user identifiers, query strings or raw URL paths logged.
+app.UseMiddleware<HttpRequestAuditMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {

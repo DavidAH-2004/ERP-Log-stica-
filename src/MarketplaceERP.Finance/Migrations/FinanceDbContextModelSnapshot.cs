@@ -23,6 +23,89 @@ namespace MarketplaceERP.Finance.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("MarketplaceERP.Finance.Entities.ArchivoCompra", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CantidadItems")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Contacto")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Correo")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<DateTime>("FechaActualizacionUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("FechaCreacionUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("MontoTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("NumeroPO")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("OrdenCompraId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("PdfContenido")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("PdfSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("ProveedorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProveedorNit")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ProveedorNombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Telefono")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("VersionPdf")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FechaCreacionUtc");
+
+                    b.HasIndex("OrdenCompraId")
+                        .IsUnique();
+
+                    b.HasIndex("ProveedorId");
+
+                    b.ToTable("archivos_compras", "finance");
+                });
+
             modelBuilder.Entity("MarketplaceERP.Finance.Entities.CancelacionPreEnvioQa", b =>
                 {
                     b.Property<Guid>("Id")
@@ -930,6 +1013,17 @@ namespace MarketplaceERP.Finance.Migrations
                         .IsUnique();
 
                     b.ToTable("splits_pago", "finance");
+                });
+
+            modelBuilder.Entity("MarketplaceERP.Finance.Entities.ArchivoCompra", b =>
+                {
+                    b.HasOne("MarketplaceERP.Finance.Entities.OrdenCompra", "OrdenCompra")
+                        .WithOne()
+                        .HasForeignKey("MarketplaceERP.Finance.Entities.ArchivoCompra", "OrdenCompraId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OrdenCompra");
                 });
 
             modelBuilder.Entity("MarketplaceERP.Finance.Entities.CancelacionPreEnvioQa", b =>

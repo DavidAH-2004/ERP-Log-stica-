@@ -40,6 +40,7 @@ public class ComprasController : ControllerBase
     private readonly CoreDbContext _coreDb;
     private readonly CatalogDbContext? _catalogDb;
     private readonly ILogger<ComprasController> _logger;
+    private readonly ComprasArchivoPdfService? _archivos;
 
     public ComprasController(
         MarketplaceERP.Finance.Data.FinanceDbContext db,
@@ -48,7 +49,8 @@ public class ComprasController : ControllerBase
         IInventoryService inventory,
         CoreDbContext coreDb,
         ILogger<ComprasController> logger,
-        CatalogDbContext? catalogDb = null)
+        CatalogDbContext? catalogDb = null,
+        ComprasArchivoPdfService? archivos = null)
     {
         _db = db;
         _matching = matching;
@@ -57,6 +59,7 @@ public class ComprasController : ControllerBase
         _coreDb = coreDb;
         _logger = logger;
         _catalogDb = catalogDb;
+        _archivos = archivos;
     }
 
     // ── GET /api/compras/po ───────────────────────────────────────────────────
@@ -169,6 +172,8 @@ public class ComprasController : ControllerBase
     {
         if (req.Items == null || req.Items.Count == 0)
             return BadRequest(new { mensaje = "La PO debe tener al menos un ítem." });
+        if (req.Items.Count > 10)
+            return BadRequest(new { mensaje = "La PO admite un máximo de 10 productos." });
         if (req.ProveedorId == Guid.Empty)
             return BadRequest(new { mensaje = "Debe seleccionar un proveedor del maestro corporativo." });
 
@@ -176,6 +181,7 @@ public class ComprasController : ControllerBase
             return BadRequest(new { mensaje = "Términos de pago u observaciones exceden la longitud permitida." });
 
         decimal subtotal = 0m;
+        long cantidadTotal = 0;
         // Una PO no puede contener el mismo SKU en varias líneas: al recibir
         // mercancía se debe poder conciliar una cantidad única por producto.
         var skusEnOrden = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -190,6 +196,10 @@ public class ComprasController : ControllerBase
 
             if (item.Cantidad <= 0 || !ImporteValido(item.PrecioUnitario) || item.PrecioUnitario == 0m)
                 return BadRequest(new { mensaje = "La cantidad y el precio unitario deben ser positivos; solo dos decimales." });
+
+            cantidadTotal += item.Cantidad;
+            if (cantidadTotal > int.MaxValue)
+                return BadRequest(new { mensaje = "La cantidad total supera el máximo admitido para recepción y conciliación." });
 
             try
             {
@@ -268,7 +278,11 @@ public class ComprasController : ControllerBase
             TerminosPago = string.IsNullOrWhiteSpace(req.TerminosPago) ? terminosProveedor : req.TerminosPago,
             Observaciones = req.Observaciones ?? string.Empty,
             FechaEmision = DateTime.UtcNow,
-            FechaEntregaEsperada = req.FechaEntregaEsperada ?? DateTime.UtcNow.AddDays(15),
+            // El input date envía yyyy-MM-dd (Kind.Unspecified). Npgsql rechaza
+            // ese valor para timestamptz. Conservar la fecha civil a medianoche UTC.
+            FechaEntregaEsperada = req.FechaEntregaEsperada is { } entrega
+                ? DateTime.SpecifyKind(entrega.Date, DateTimeKind.Utc)
+                : DateTime.UtcNow.AddDays(15),
         };
 
         foreach (var item in req.Items)
@@ -292,6 +306,9 @@ public class ComprasController : ControllerBase
         po.MontoTotal = montoTotal;
 
         _db.OrdenesCompra.Add(po);
+        // Same FinanceDbContext transaction: no successfully created PO without PDF.
+        if (_archivos is not null)
+            await _archivos.PrepararAsync(po, proveedor, cancellationToken);
 
         // Aprobar automáticamente si es un borrador enviado
         if (req.EnviarInmediatamente == true)
@@ -316,13 +333,16 @@ public class ComprasController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> EnviarPO(Guid id, CancellationToken cancellationToken)
     {
-        var po = await _db.OrdenesCompra.FindAsync([id], cancellationToken);
+        var po = await _db.OrdenesCompra.Include(x => x.Items)
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (po == null) return NotFound(new { mensaje = $"PO {id} no encontrada." });
         if (po.Estado != EstadoOrdenCompra.Borrador)
             return BadRequest(new { mensaje = $"Solo una PO en Borrador puede enviarse. Estado actual: {po.Estado}." });
 
         po.Estado = EstadoOrdenCompra.Enviada;
         po.FechaEnvioProveedor = DateTime.UtcNow;
+        if (_archivos is not null)
+            await _archivos.PrepararAsync(po, null, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         return Ok(new { po.Id, po.NumeroPO, Estado = po.Estado.ToString(), po.FechaEnvioProveedor });
@@ -518,6 +538,8 @@ public class ComprasController : ControllerBase
                 ? EstadoOrdenCompra.RecibidaCompleta
                 : EstadoOrdenCompra.RecibidaParcial;
             po.FechaRecepcionReal = DateTime.UtcNow;
+            if (_archivos is not null)
+                await _archivos.PrepararAsync(po, null, cancellationToken);
             await _db.SaveChangesAsync(cancellationToken);
 
             resultados.Add(new
@@ -542,6 +564,8 @@ public class ComprasController : ControllerBase
         if (huboCambios)
             po.FechaRecepcionReal = DateTime.UtcNow;
 
+        if (huboCambios && _archivos is not null)
+            await _archivos.PrepararAsync(po, null, cancellationToken);
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
@@ -604,8 +628,10 @@ public class ComprasController : ControllerBase
         if (!ImporteValido(totalCalculado) || req.MontoTotal != totalCalculado)
             return BadRequest(new { mensaje = "El total de la factura debe coincidir exactamente con el subtotal más IVA (13%)." });
 
-        var fechaEmision = req.FechaEmision ?? DateTime.UtcNow;
-        var fechaVencimiento = req.FechaVencimiento ?? fechaEmision.AddDays(30);
+        var fechaEmision = req.FechaEmision is { } emision
+            ? DateTime.SpecifyKind(emision.Date, DateTimeKind.Utc) : DateTime.UtcNow;
+        var fechaVencimiento = req.FechaVencimiento is { } vencimiento
+            ? DateTime.SpecifyKind(vencimiento.Date, DateTimeKind.Utc) : fechaEmision.AddDays(30);
         if (fechaVencimiento < fechaEmision)
             return BadRequest(new { mensaje = "El vencimiento no puede ser anterior a la emisión de la factura." });
 
@@ -812,8 +838,16 @@ public class ComprasController : ControllerBase
                     cancellationToken))
                     return Conflict(new { mensaje = "La orden ya tiene un asiento de compra registrado." });
 
-                var po = await _db.OrdenesCompra.FindAsync([req.OrdenCompraId], cancellationToken)
+                var po = await _db.OrdenesCompra.Include(x => x.Items)
+                    .FirstOrDefaultAsync(x => x.Id == req.OrdenCompraId, cancellationToken)
                     ?? throw new InvalidOperationException("No se encuentra la orden contabilizable.");
+                // The 3-Way Match may change the PO state. Keep the stored PDF synchronized
+                // in the same Finance transaction as the accounting authorization.
+                if (_archivos is not null)
+                {
+                    await _archivos.PrepararAsync(po, null, cancellationToken);
+                    await _db.SaveChangesAsync(cancellationToken);
+                }
                 var factura = await _db.FacturasProveedor.FindAsync([req.FacturaProveedorId], cancellationToken)
                     ?? throw new InvalidOperationException("No se encuentra la factura contabilizable.");
 

@@ -197,6 +197,25 @@ namespace MarketplaceERP.Core.Migrations
                     b.ToTable("reglas_comision", "core");
                 });
 
+            modelBuilder.Entity("MarketplaceERP.Core.Entities.LoginThrottle", b =>
+                {
+                    b.Property<string>("AccountKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("Requests")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("WindowStartUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AccountKey");
+
+                    b.HasIndex("WindowStartUtc");
+
+                    b.ToTable("login_throttle", "core");
+                });
+
             modelBuilder.Entity("MarketplaceERP.Core.Entities.Usuario", b =>
                 {
                     b.Property<Guid>("Id")
@@ -235,6 +254,11 @@ namespace MarketplaceERP.Core.Migrations
 
                     b.Property<Guid?>("VendedorId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("VersionSesion")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.HasKey("Id");
 

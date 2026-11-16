@@ -112,6 +112,12 @@ function setupApi(page) {
             sku: 'SKU-OWN-A', nombre: 'Producto propio A', cantidad: 1, precioUnitario: 15 }]
         }) });
     }
+    // F480: no release approval or barcode schema exists in the local
+    // fixture. A 503 must be surfaced, not treated as a successful rotation.
+    if (url.pathname.includes('/codigo-barras/rotaciones')) {
+      return route.fulfill({status:503,contentType:'application/json',
+        body:JSON.stringify({mensaje:'Rotaciones deshabilitadas en QA local'})});
+    }
     if (url.pathname.startsWith('/api/ordenes')) {
       return route.fulfill({ status: 200, contentType: 'application/json',
         body: JSON.stringify({ total: 0, items: [], pagina: 1 }) });
@@ -164,6 +170,13 @@ async function run() {
     await page.waitForURL('**/dashboard');
     assert.equal(await page.evaluate(() => localStorage.getItem('erp_token')), firstToken);
     console.log('OK P1 Chromium: Admin login and persisted refresh');
+    // F480: a real Admin may SEE the route but no inactive backend call can
+    // issue EAN, approve an audit or touch a remote database.
+    await page.goto(baseUrl + '/productos/rotaciones');
+    await page.getByRole('heading',{name:'Rotaciones EAN de productos'}).waitFor();
+    await page.getByPlaceholder('Producto UUID').fill('11111111-1111-4111-8111-111111111111');
+    await page.getByRole('button',{name:'Consultar historial'}).click();
+    await page.getByText('Función aún inhabilitada en este entorno.').waitFor();
     await page.goto(baseUrl + '/mis-ordenes');
     await page.getByRole('heading', { name: 'Acceso no autorizado' }).waitFor();
 
@@ -211,6 +224,8 @@ async function run() {
     await page.goto(baseUrl + '/ordenes');
     await page.getByRole('heading', { name: 'Acceso no autorizado' }).waitFor();
     await page.goto(baseUrl + '/wms');
+    await page.getByRole('heading', { name: 'Acceso no autorizado' }).waitFor();
+    await page.goto(baseUrl + '/productos/rotaciones');
     await page.getByRole('heading', { name: 'Acceso no autorizado' }).waitFor();
     await page.getByRole('button', { name: 'Volver al inicio permitido' }).click();
     await page.waitForURL('**/productos');

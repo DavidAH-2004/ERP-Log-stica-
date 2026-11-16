@@ -102,6 +102,16 @@ public class CatalogImportService : ICatalogImportService
                 await transaccion.CommitAsync(cancellationToken);
                 return resultado;
             }
+            catch (DbUpdateException ex) when (
+                ex.InnerException is Npgsql.PostgresException pg &&
+                pg.SqlState == "23505" &&
+                pg.ConstraintName == "UX_productos_CodigoEAN_no_vacio")
+            {
+                // La base de datos detectó una carrera entre instancias
+                // mientras se confirmaba el lote. Sin escrituras parciales.
+                _dbContext.ChangeTracker.Clear();
+                throw new CodigoEanDuplicadoException();
+            }
             catch
             {
                 // Al salir sin Commit, PostgreSQL revierte todo el lote.
@@ -130,6 +140,9 @@ public class CatalogImportService : ICatalogImportService
         var errores = new List<string>();
         int exitosos = 0;
         int total = 0;
+        // F419: impedir códigos repetidos entre productos creados en un
+        // mismo archivo antes del SaveChanges de todo el lote.
+        var nuevosEansEnLote = new HashSet<string>(StringComparer.Ordinal);
 
         string? headerLine = await reader.ReadLineAsync(cancellationToken);
         if (headerLine is null)
@@ -297,6 +310,27 @@ public class CatalogImportService : ICatalogImportService
 
                 if (producto is null)
                 {
+                    // F417: los identificadores importados solo se aceptan si
+                    // cumplen EAN-13. No reparar ni inventar un checksum:
+                    // un código diferente invalidaría etiquetas históricas.
+                    // NULL permite emitir posteriormente un EAN interno mediante
+                    // el flujo autorizado de asignación Admin.
+                    string? eanValido = CodigoBarras.EsEan13Valido(ean) &&
+                        !CodigoBarras.EsInterno(ean) ? ean : null;
+                    if (ean.Length > 0 && eanValido is null)
+                        _logger.LogWarning(
+                            "CSV omitió EAN no conforme o reservado para SKU nuevo {Sku}; requiere asignación Admin.",
+                            sku);
+
+                    // Evitar duplicados tanto en filas de este CSV como frente
+                    // a registros persistidos, sin sustituir ni borrar históricos.
+                    // La restricción F419 en PostgreSQL es el árbitro de carrera.
+                    if (eanValido is not null &&
+                        (!nuevosEansEnLote.Add(eanValido) ||
+                         await _dbContext.Productos.AsNoTracking()
+                             .AnyAsync(p => p.CodigoEAN == eanValido, cancellationToken)))
+                        throw new CodigoEanDuplicadoException(sku);
+
                     producto = new Producto
                     {
                         Id = Guid.NewGuid(),
@@ -314,7 +348,7 @@ public class CatalogImportService : ICatalogImportService
                         DimensionesCm = dimensiones,
                         UnidadMedida = unidad,
                         EstadoProducto = estado,
-                        CodigoEAN = ean,
+                        CodigoEAN = eanValido,
                         Descripcion = descripcion,
                         VendedorId = defaultVendedorId,
                         CategoriaId = defaultCategoriaId,
@@ -353,7 +387,16 @@ public class CatalogImportService : ICatalogImportService
                     producto.DimensionesCm = dimensiones;
                     producto.UnidadMedida = unidad;
                     producto.EstadoProducto = estado;
-                    producto.CodigoEAN = ean;
+                    // F415: el EAN ya asignado es un identificador operacional.
+                    // Una reimportación de datos maestros NO puede renumerar,
+                    // borrar ni asignar códigos de un SKU preexistente.
+                    // Usar exclusivamente el endpoint de asignación Admin
+                    // para productos sin EAN; rotaciones requieren auditoría.
+                    if (!string.Equals(producto.CodigoEAN ?? string.Empty, ean,
+                            StringComparison.Ordinal))
+                        _logger.LogWarning(
+                            "CSV ignoró intento de cambio EAN para SKU existente {Sku}; se conservó el identificador.",
+                            producto.Sku);
                     producto.Descripcion = descripcion;
                     producto.EstaPublicado = (estado == "Activo");
 
@@ -385,6 +428,11 @@ public class CatalogImportService : ICatalogImportService
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                throw;
+            }
+            catch (CodigoEanDuplicadoException)
+            {
+                // F420: no convertir un error de negocio reproducible en 500.
                 throw;
             }
             catch (Exception ex)

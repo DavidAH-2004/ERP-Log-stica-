@@ -8,13 +8,16 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test:auth": "node --test tests/auth-proxy.test.cjs",
+    "test:auth": "node --test tests/auth-proxy.test.cjs tests/bff-cookie.test.cjs tests/bff-client.test.cjs",
     "test:checkout": "node tests/checkout-state-check.cjs",
     "test:p3": "node --test tests/p3-quality.test.cjs"
   },
   "dependencies": {
     "@types/recharts": "^1.8.29",
+    "@zxing/browser": "0.2.1",
+    "@zxing/library": "0.23.0",
     "clsx": "^2.1.1",
+    "jsbarcode": "3.12.3",
     "lucide-react": "^1.47.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -24,6 +27,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
+    "@types/jsbarcode": "3.11.4",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@typescript-eslint/eslint-plugin": "^8.0.1",

@@ -1,4 +1,4 @@
-﻿name: CI - MarketplaceERP
+name: CI - MarketplaceERP
 
 on:
   push:
@@ -139,6 +139,14 @@ jobs:
           node scripts/p1-staging-auth-readonly.mjs --help
           node --check frontend/marketplace-ui/tests/e2e-staging-preview.mjs
 
+      # F371: offline contract of the read-only DEV health/ready monitor.
+      - name: Test F371 Render Development health monitor without network
+        run: node scripts/f371-readiness-monitor.mjs --self-test
+
+      # F372: fail closed if cookie/antiforgery/TempData DataProtection consumers are added.
+      - name: F372 static DataProtection consumer gate
+        run: node scripts/f372-dataprotection-consumers.mjs --self-test
+
       # 8. Instalar dependencias npm
       - name: Install npm dependencies
         working-directory: frontend/marketplace-ui
@@ -160,6 +168,11 @@ jobs:
       - name: Classify npm security advisories (non-mutating)
         run: node scripts/p1-audit-dependencies.mjs
 
+      # F484: independent offline NO-GO on mismatched Production SHAs,
+      # broken restores, missing owner approval or active DB writers.
+      - name: F484 production cutover evidence gate (pure offline fixtures)
+        run: node scripts/f484-production-evidence-gate.test.mjs
+
       # 9. Verificar contratos de autenticacion y checkout
       - name: Test frontend auth
         working-directory: frontend/marketplace-ui
@@ -168,6 +181,13 @@ jobs:
       - name: Test frontend checkout
         working-directory: frontend/marketplace-ui
         run: npm run test:checkout
+
+      # F396: pure barcode / scanner contracts from colleague fork; no DB or external network.
+      - name: F396 EAN-13 and scan result tests
+        working-directory: frontend/marketplace-ui
+        run: |
+          node tests/ean13.test.cjs
+          node tests/resultado-lectura.test.cjs
 
       # 10. Build del frontend
       - name: Test P3 catalog pagination and KPI exports
@@ -254,7 +274,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18 # F489: matches actual Neon DEV/legacy PG18; .NET unit test job stays PG15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgrespassword
@@ -307,14 +327,60 @@ jobs:
           npm install --no-save --no-package-lock playwright@1.55.0
           npx playwright install --with-deps chromium
 
+      # F405: validate 30 physical-size grid slots in Chromium and print-to-PDF,
+      # without a physical printer, device, external API or persistent data.
+      - name: F405 Avery 5160 print layout (Chromium, virtual PDF only)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f405-avery-print-layout.mjs
+      - name: F406 JsBarcode to ZXing synthetic optical round-trip (Chromium)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f406-optical-roundtrip.mjs
+
+      - name: F411/F422 scanner keyboard and synthetic camera decode (local Chromium)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f411-scanner-camera-ui.mjs
+
       - name: Test real browser with mock API only
         working-directory: frontend/marketplace-ui
         run: node tests/e2e-auth-browser.mjs
+
+      - name: Purchase order multi-item and invoice browser regression
+        working-directory: frontend/marketplace-ui
+        run: |
+          npm run build
+          node tests/compras-multi-items.mjs
+
+      # F355: isolated HTTPS Chromium exercises the opt-in BFF/cookie path.
+      # VITE_BFF_AUTH_MODE is scoped to this step ONLY; production deployments
+      # and existing CI tests continue using the legacy bearer path.
+      - name: Test secure cookie BFF with HTTPS Chromium (mock API only)
+        working-directory: frontend/marketplace-ui
+        env:
+          VITE_BFF_AUTH_MODE: enabled
+        run: |
+          npm run build
+          node tests/e2e-bff-cookie-browser.mjs
 
       - name: Build .NET API for local full-stack E2E
         run: |
           dotnet restore MarketplaceERP.sln
           dotnet build src/MarketplaceERP.API/MarketplaceERP.API.csproj --configuration Release --no-restore
+
+      # F495: exercise the exact EAN alias/rotation Up/Down and signed-
+      # webhook replay migrations against PG18 as well as the PG15 .NET job.
+      # Tests create and DROP only their own CI local disposable databases.
+      - name: F495 PG18 EAN rotation and bank replay invariants
+        env:
+          TEST_PG_CONNECTION: ${{ env.CONNECTION_STRING }}
+        run: |
+          dotnet test tests/MarketplaceERP.Catalog.Tests/MarketplaceERP.Catalog.Tests.csproj \
+            --configuration Release --no-restore \
+            --filter "FullyQualifiedName~F451EanReservationsMigrationPgTests" \
+            --logger "console;verbosity=minimal"
+          dotnet test tests/MarketplaceERP.Finance.Tests/MarketplaceERP.Finance.Tests.csproj \
+            --configuration Release --no-restore \
+            --filter "FullyQualifiedName~PostgresSchemaMigrationSmokeTests" \
+            --logger "console;verbosity=minimal"
 
       - name: Migrate and bootstrap disposable PostgreSQL only
         run: |
@@ -374,6 +440,44 @@ jobs:
           F101_CHROME_CHANNEL: chromium
         run: node tests/f105-live-seller-orders.mjs
 
+      # F381: REAL BFF adapter -> REAL ASP.NET 8 + disposable PostgreSQL.
+      # Passwords are ephemeral CI-only; no Vercel/Render/Neon, no payments.
+      - name: F381 BFF against real local API (fail closed, no external credentials)
+        working-directory: frontend/marketplace-ui
+        run: node tests/f381-real-api-bff-smoke.mjs
+
+      # F390: two strict AUTH .NET processes share ONLY disposable localhost DB.
+      # No Render, Neon, Vercel, real payments or persistent credentials.
+      - name: F390 start two strict-auth API instances (localhost only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5001 5002; do
+            nohup env PORT="$port" Auth__EnableSessionVersionCheck=true \
+              Auth__EnableDistributedAccountLoginThrottle=true \
+              dotnet run --project src/MarketplaceERP.API/MarketplaceERP.API.csproj \
+                --configuration Release --no-build --no-launch-profile \
+                > "/tmp/f390-api-$port.log" 2>&1 &
+            ready=0
+            for i in $(seq 1 120); do
+              if curl --silent --fail "http://127.0.0.1:$port/health/ready" > /dev/null; then
+                ready=1; break
+              fi
+              sleep 0.3
+            done
+            if [ "$ready" != "1" ]; then
+              echo "::error::F390 strict local API $port never became ready"
+              exit 1
+            fi
+          done
+
+      - name: F390 cross-instance revocation and account throttle (real API and DB)
+        working-directory: frontend/marketplace-ui
+        env:
+          Auth__EnableSessionVersionCheck: "true"
+          Auth__EnableDistributedAccountLoginThrottle: "true"
+        run: node tests/f390-two-instance-auth.mjs
+
   local-worktrees-windows:
     name: Local Git comparator (Windows PowerShell 5.1)
     runs-on: windows-latest
@@ -385,6 +489,22 @@ jobs:
       - name: F315 Vercel policy offline guard (11 scenarios, no network)
         shell: powershell
         run: .\\scripts\\f315-vercel-policy-contract-tests.ps1
+      - name: F424 Admin Preview QA helper parse (offline)
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $script='./scripts/f424-preview-admin-readonly.ps1'
+          if(!(Test-Path -LiteralPath $script)){throw 'F424 script absent'}
+          $tokens=$null
+          $parseErrors=$null
+          [Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$parseErrors)|Out-Null
+          if($parseErrors.Count){throw 'F424 script parse errors'}
+          $content=Get-Content -LiteralPath $script -Raw
+          if($content -notmatch 'Read-Host.*-AsSecureString' -or
+              $content -notmatch 'F424_BUSINESS_WRITES=0' -or
+              $content -notmatch 'marketplaceerp-api-staging.onrender.com'){
+            throw 'F424 script safety contract changed'
+          }
       - name: Compare two disposable worktrees with absent files
         shell: powershell
         run: |

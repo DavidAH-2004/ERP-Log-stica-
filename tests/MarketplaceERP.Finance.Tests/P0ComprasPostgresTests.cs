@@ -144,9 +144,20 @@ public class P0ComprasPostgresTests
             finance, matching, ledger, inventory, core,
             NullLogger<ComprasController>.Instance, catalog);
 
+        // Reproduce el origen del 500: Npgsql no admite la fecha sin zona
+        // que envía input[type=date] en una columna timestamptz.
+        await using (var dateConnection = new NpgsqlConnection(testConnection))
+        {
+            await dateConnection.OpenAsync();
+            await using var dateCommand = new NpgsqlCommand("SELECT @fecha", dateConnection);
+            dateCommand.Parameters.AddWithValue("fecha", NpgsqlTypes.NpgsqlDbType.TimestampTz,
+                new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Unspecified));
+            await Assert.ThrowsAsync<ArgumentException>(async () => { await dateCommand.ExecuteScalarAsync(); });
+        }
+
         Assert.IsType<CreatedAtActionResult>(await controller.CrearPO(
             new CrearPORequest(proveedor.Id, "Proveedor ficticio P0", null,
-                "Caso de prueba aislado", null, false,
+                "Caso de prueba aislado", new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Unspecified), false,
                 new List<ItemPORequest>
                 {
                     new("P0-ARROZ", "Arroz demo", 24, 3.55m),
@@ -154,6 +165,8 @@ public class P0ComprasPostgresTests
                 }), CancellationToken.None));
 
         var po = await finance.OrdenesCompra.Include(x => x.Items).SingleAsync();
+        Assert.Equal(DateTimeKind.Utc, po.FechaEntregaEsperada!.Value.Kind);
+        Assert.Equal(2, po.Items.Count);
         Assert.Equal(205.92m, po.SubTotal);
         Assert.Equal(26.77m, po.ImpuestoIva);
         Assert.Equal(232.69m, po.MontoTotal);
@@ -209,7 +222,7 @@ public class P0ComprasPostgresTests
         // Documento sintético; no se ejecuta pago ni se llama a un proveedor.
         Assert.IsType<CreatedAtActionResult>(await controller.RegistrarFactura(
             new RegistrarFacturaRequest(po.Id, "FAC-P0-DEMO", 205.92m, 232.69m,
-                null, null, new()
+                new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Unspecified), null, new()
                 {
                     new(arroz.Id, 24, 3.55m),
                     new(cafe.Id, 12, 10.06m)

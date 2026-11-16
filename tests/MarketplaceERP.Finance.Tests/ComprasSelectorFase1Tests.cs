@@ -17,6 +17,65 @@ namespace MarketplaceERP.Finance.Tests;
 
 public sealed class ComprasSelectorFase1Tests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(10)]
+    public async Task CrearPO_PersisteUnEncabezadoConTodosLosItemsYFechaUtc(int cantidadItems)
+    {
+        var (core, finance, catalog, controller, proveedorId) = Crear();
+        await using var _1 = core;
+        await using var _2 = finance;
+        await using var _3 = catalog;
+        var productos = Enumerable.Range(1, cantidadItems).Select(i => Producto($"MULTI-{i}", $"Producto {i}")).ToList();
+        catalog.Productos.AddRange(productos);
+        await catalog.SaveChangesAsync();
+        // Equivale al yyyy-MM-dd del formulario, sin zona ni hora.
+        var fecha = new DateTime(2026, 12, 1, 0, 0, 0, DateTimeKind.Unspecified);
+        var result = await controller.CrearPO(new CrearPORequest(proveedorId, "Ignorado", "Crédito 20 días",
+            null, fecha, false, productos.Select(p => new ItemPORequest(p.Sku, p.Nombre, 2, 2.55m)).ToList()), CancellationToken.None);
+        Assert.IsType<CreatedAtActionResult>(result);
+        finance.ChangeTracker.Clear();
+        var po = await finance.OrdenesCompra.Include(p => p.Items).SingleAsync();
+        Assert.Equal(cantidadItems, po.Items.Count);
+        Assert.All(po.Items, i => Assert.Equal(po.Id, i.OrdenCompraId));
+        Assert.Equal(5.10m * cantidadItems, po.SubTotal);
+        Assert.Equal(po.SubTotal + decimal.Round(po.SubTotal * 0.13m, 2), po.MontoTotal);
+        Assert.Equal(fecha, po.FechaEntregaEsperada);
+        Assert.Equal(DateTimeKind.Utc, po.FechaEntregaEsperada!.Value.Kind);
+        Assert.Equal("Crédito 20 días", po.TerminosPago);
+        Assert.IsType<OkObjectResult>(await controller.ListarPO(cancellationToken: CancellationToken.None));
+        Assert.IsType<OkObjectResult>(await controller.ObtenerPO(po.Id, CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(11)]
+    public async Task CrearPO_RechazaFueraDelLimiteSinPersistir(int cantidadItems)
+    {
+        var (core, finance, catalog, controller, proveedorId) = Crear();
+        await using var _1 = core;
+        await using var _2 = finance;
+        await using var _3 = catalog;
+        var result = await controller.CrearPO(new CrearPORequest(proveedorId, "Proveedor", null, null, null, false,
+            Enumerable.Range(1, cantidadItems).Select(i => new ItemPORequest($"SKU-{i}", "Producto", 1, 1m)).ToList()), CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(await finance.OrdenesCompra.ToListAsync());
+        Assert.Empty(await finance.ItemsOrdenCompra.ToListAsync());
+    }
+
+    [Fact]
+    public async Task CrearPO_RechazaSumaQueDesbordariaRecepcionYMatch()
+    {
+        var (core, finance, catalog, controller, proveedorId) = Crear();
+        await using var _1 = core;
+        await using var _2 = finance;
+        await using var _3 = catalog;
+        var result = await controller.CrearPO(new CrearPORequest(proveedorId, "Proveedor", null, null, null, false,
+            new() { new("A", "A", int.MaxValue, 1m), new("B", "B", 1, 1m) }), CancellationToken.None);
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(await finance.OrdenesCompra.ToListAsync());
+    }
+
     private static (CoreDbContext core, FinanceDbContext finance, CatalogDbContext catalog,
         ComprasController controller, Guid proveedorId) Crear()
     {

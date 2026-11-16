@@ -146,6 +146,33 @@ public sealed class EvaluadorConciliacionI2B2C1Tests
         gateway.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("0", "USD")]
+    [InlineData("-1", "USD")]
+    [InlineData("12.345", "USD")]
+    [InlineData("125", "")]
+    [InlineData("125", "usd")]
+    [InlineData("125", "USDD")]
+    public async Task F443_ImporteOMonedaCorruptos_NoConsultanProveedor(
+        string importe, string moneda)
+    {
+        using var db = Db();
+        var id = Guid.NewGuid();
+        var intento = Intento(id, EstadoIntentoPago.Incierto);
+        intento.Monto = decimal.Parse(importe, System.Globalization.CultureInfo.InvariantCulture);
+        intento.Moneda = moneda;
+        db.IntentosPago.Add(intento);
+        await db.SaveChangesAsync();
+        var provider = new Mock<IPaymentRecoveryGateway>(MockBehavior.Strict);
+
+        var resultado = await Servicio(db, provider).EvaluarAsync(id);
+
+        Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, resultado.Decision);
+        Assert.Equal(EstadoIntentoPago.Incierto, db.IntentosPago.Single().Estado);
+        Assert.Empty(db.ConciliacionesPago);
+        provider.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task CargoConfirmado_EsConsultivoYNoCierraLaOrden()
     {
@@ -242,6 +269,31 @@ public sealed class EvaluadorConciliacionI2B2C1Tests
             .ReturnsAsync(new ConsultaPagoResult(EstadoCobroProveedor.Confirmado, transaccion));
         var actual = await Servicio(db, gateway).EvaluarAsync(id);
         Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, actual.Decision);
+    }
+
+    [Theory]
+    [InlineData(" TXN-ABC")]
+    [InlineData("TXN-ABC ")]
+    [InlineData("TXN-ABC\n")]
+    [InlineData("TXN-ABC\r")]
+    public async Task F448_IdentificadorExternoAmbiguo_RequiereRevisionSinMutaciones(string idExterno)
+    {
+        using var db = Db();
+        var id = Guid.NewGuid();
+        db.IntentosPago.Add(Intento(id, EstadoIntentoPago.Incierto));
+        await db.SaveChangesAsync();
+        var gateway = new Mock<IPaymentRecoveryGateway>();
+        gateway.Setup(g => g.ConsultarEstadoAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ConsultaPagoResult(EstadoCobroProveedor.Confirmado, idExterno));
+
+        var resultado = await Servicio(db, gateway).EvaluarAsync(id);
+
+        Assert.Equal(DecisionConciliacionPago.RequiereRevisionManual, resultado.Decision);
+        Assert.Null(resultado.TransaccionId);
+        Assert.Equal(EstadoIntentoPago.Incierto, db.IntentosPago.Single().Estado);
+        Assert.Empty(db.ConciliacionesPago);
+        gateway.Verify(g => g.ReembolsarAsync(It.IsAny<ReembolsoPagoRequest>(),
+            It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

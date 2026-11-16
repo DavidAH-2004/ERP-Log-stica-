@@ -41,6 +41,10 @@ public class AuthController : ControllerBase
 {
     private readonly CoreDbContext _coreDb;
     private readonly JwtSettings _jwtSettings;
+    private readonly bool _enforceSessionVersion;
+    private readonly bool _distributedAccountThrottle;
+    private readonly bool _distributedPeerThrottle;
+    private readonly bool _verifiedIngressPeerIdentity;
     private readonly ILogger<AuthController> _logger;
     private readonly PasswordHasher<Usuario> _passwordHasher;
     private static readonly Usuario _dummyUsuario = new() { Email = "dummy@security.internal" };
@@ -50,10 +54,15 @@ public class AuthController : ControllerBase
     public AuthController(
         CoreDbContext coreDb,
         IOptions<JwtSettings> jwtOptions,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        IConfiguration? configuration = null)
     {
         _coreDb = coreDb;
         _jwtSettings = jwtOptions.Value;
+        _enforceSessionVersion = configuration?.GetValue<bool>("Auth:EnableSessionVersionCheck") ?? false;
+        _distributedAccountThrottle = configuration?.GetValue<bool>("Auth:EnableDistributedAccountLoginThrottle") ?? false;
+        _distributedPeerThrottle = configuration?.GetValue<bool>("Auth:EnableDistributedPeerLoginThrottle") ?? false;
+        _verifiedIngressPeerIdentity = configuration?.GetValue<bool>("Auth:VerifiedIngressPeerIdentity") ?? false;
         _logger = logger;
         _passwordHasher = new PasswordHasher<Usuario>();
     }
@@ -82,6 +91,81 @@ public class AuthController : ControllerBase
 
         var normalizedEmail = rawEmail.Trim().ToLowerInvariant();
         var maskedEmail = MaskEmail(normalizedEmail);
+
+        // F369: atomic PostgreSQL upsert keyed by HMAC of the normalized email.
+        // This runs equally for existing and nonexistent addresses and across
+        // Render instances. The old per-proxy-IP limiter stays in place too.
+        // OFF by default until the Core login_throttle migration is verified.
+        if (normalizedEmail.Length > 254)
+            return BadRequest(new { mensaje = "El correo electrónico no es válido." });
+        // F492: shared PostgreSQL throttle for the actual TCP peer; never
+        // accept X-Forwarded-For or CF-Connecting-IP from clients.
+        // Both flags are OFF by default. A proxy/NAT can aggregate many users.
+        if (_distributedPeerThrottle)
+        {
+            var peer = HttpContext.Connection.RemoteIpAddress;
+            if (!_verifiedIngressPeerIdentity || peer is null)
+            {
+                _logger.LogWarning("Distributed peer login limiter requires ingress attestation.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+            peer = peer.IsIPv4MappedToIPv6 ? peer.MapToIPv4() : peer;
+            if (peer.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                // IPv6 privacy addresses in one /64 share a single allowance.
+                var octets = peer.GetAddressBytes();
+                Array.Clear(octets, 8, 8);
+                peer = new System.Net.IPAddress(octets);
+            }
+            try
+            {
+                var attempts = await ConsumeDistributedLoginAttemptAsync(
+                    "marketplaceerp:peer-throttle:v1\0" + peer, cancellationToken);
+                if (attempts > 20)
+                {
+                    Response.Headers["Retry-After"] = "60";
+                    _logger.LogWarning("Límite distribuido de login por peer superado.");
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { mensaje = "Demasiados intentos. Vuelve a intentarlo más tarde." });
+                }
+            }
+            catch (Exception ex) when (
+                ex is System.Data.Common.DbException || ex is DbUpdateException ||
+                ex is InvalidOperationException || ex is OperationCanceledException)
+            {
+                _logger.LogWarning("No se pudo verificar el límite distribuido por peer.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+        }
+
+        if (_distributedAccountThrottle)
+        {
+            try
+            {
+                var attempts = await ConsumeDistributedLoginAttemptAsync(
+                    "marketplaceerp:login-throttle:v1\0" + normalizedEmail,
+                    cancellationToken);
+                if (attempts > 5)
+                {
+                    Response.Headers["Retry-After"] = "60";
+                    _logger.LogWarning("Límite distribuido de login superado (sin datos identificables).");
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { mensaje = "Demasiados intentos. Vuelve a intentarlo más tarde." });
+                }
+            }
+            catch (Exception ex) when (
+                ex is System.Data.Common.DbException || ex is DbUpdateException ||
+                ex is InvalidOperationException || ex is OperationCanceledException)
+            {
+                // A missing migration or a DB outage must not silently disable
+                // cross-instance throttling after this flag has been enabled.
+                _logger.LogWarning("No se pudo verificar el límite distribuido de login.");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { mensaje = "La autenticación no está disponible temporalmente." });
+            }
+        }
 
         // Buscar usuario estrictamente por Email normalizado en minúsculas
         var usuario = await _coreDb.Usuarios
@@ -119,6 +203,137 @@ public class AuthController : ControllerBase
         return Ok(new LoginResponse(token, rolCanonico, expiresAt, usuario.Nombre, rolCanonico));
     }
 
+    /// <summary>
+    /// F353: endpoint de sesión para el BFF HttpOnly de PREVIEW.
+    /// El JWT permanece en el servidor proxy; aquí solo se exponen los
+    /// datos mínimos de identidad. Se comprueba usuario activo y rol vigente.
+    /// No habilita revocación global ni sustituye la pasarela de pagos.
+    /// </summary>
+    [Authorize(Roles = "Admin,Vendedor,Comprador")]
+    [HttpGet("session")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Session(CancellationToken cancellationToken)
+    {
+        var idValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var expiryValue = User.FindFirst(JwtRegisteredClaimNames.Exp)?.Value;
+        if (!Guid.TryParse(idValue, out var usuarioId) ||
+            !long.TryParse(expiryValue, out var expiryUnix) ||
+            expiryUnix <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        {
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+        }
+
+        var usuario = await _coreDb.Usuarios
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == usuarioId && u.Activo, cancellationToken);
+
+        var rolCanonico = usuario is null ? null : UsuarioRoles.Canonizar(usuario.Rol);
+        if (usuario is null || rolCanonico is null ||
+            !string.Equals(User.FindFirst(ClaimTypes.Role)?.Value, rolCanonico, StringComparison.Ordinal))
+        {
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+        }
+
+        return Ok(new
+        {
+            usuario = usuario.Nombre,
+            rol = rolCanonico,
+            role = rolCanonico,
+            expiresAt = DateTimeOffset.FromUnixTimeSeconds(expiryUnix).UtcDateTime,
+            email = usuario.Email,
+            vendedorId = rolCanonico == "Vendedor" ? usuario.VendedorId : null
+        });
+    }
+
+    /// <summary>
+    /// F360: atomically invalidate all previous JWTs for the account.
+    /// Disabled until the database migration and explicit cutover gate succeed.
+    /// </summary>
+    [Authorize(Roles = "Admin,Vendedor,Comprador")]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        if (!_enforceSessionVersion)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "Revocación todavía no habilitada." });
+
+        var idText = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var versionText = User.FindFirst("sv")?.Value;
+        if (!Guid.TryParse(idText, out var userId) || userId == Guid.Empty ||
+            !int.TryParse(versionText, out var version) || version < 0)
+            return Unauthorized(new { mensaje = "Sesión inválida." });
+
+        try
+        {
+            var changed = await _coreDb.Usuarios
+                .Where(u => u.Id == userId && u.Activo && u.VersionSesion == version &&
+                    u.VersionSesion < int.MaxValue)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(
+                    u => u.VersionSesion, u => u.VersionSesion + 1), cancellationToken);
+            if (changed != 1)
+                return Unauthorized(new { mensaje = "La sesión ya fue revocada." });
+
+            _logger.LogInformation("Sesiones anteriores revocadas para Usuario={UsuarioId}.", userId);
+            return NoContent();
+        }
+        catch (Exception ex) when (
+            ex is DbUpdateException || ex is InvalidOperationException ||
+            ex is System.Data.Common.DbException || ex is OperationCanceledException)
+        {
+            _logger.LogWarning("No se pudo confirmar la revocación de sesión.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { mensaje = "La revocación no se confirmó." });
+        }
+    }
+
+    /// <summary>
+    /// F369: one atomic SQL statement across PostgreSQL clients/instances.
+    /// Neither a plaintext email nor its unsalted SHA hash is stored: the
+    /// private JWT signing key is used with a distinct HMAC domain separator.
+    /// This is an ACCOUNT limiter, not trusted client-IP identification.
+    /// </summary>
+    private async Task<int> ConsumeDistributedLoginAttemptAsync(
+        string domainSeparatedIdentity, CancellationToken cancellationToken)
+    {
+        var key = Convert.ToHexString(HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(_jwtSettings.Key),
+            Encoding.UTF8.GetBytes(domainSeparatedIdentity)));
+
+        await _coreDb.Database.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            await using var command = _coreDb.Database.GetDbConnection().CreateCommand();
+            command.CommandText = """
+                INSERT INTO core.login_throttle AS lim ("AccountKey", "WindowStartUtc", "Requests")
+                VALUES (@account_key, clock_timestamp(), 1)
+                ON CONFLICT ("AccountKey") DO UPDATE SET
+                  "Requests" = CASE
+                    WHEN lim."WindowStartUtc" <= clock_timestamp() - INTERVAL '60 seconds'
+                    THEN 1 ELSE LEAST(lim."Requests" + 1, 2147483647) END,
+                  "WindowStartUtc" = CASE
+                    WHEN lim."WindowStartUtc" <= clock_timestamp() - INTERVAL '60 seconds'
+                    THEN clock_timestamp() ELSE lim."WindowStartUtc" END
+                RETURNING "Requests";
+                """;
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "account_key";
+            parameter.Value = key;
+            command.Parameters.Add(parameter);
+            var value = await command.ExecuteScalarAsync(cancellationToken);
+            if (value is not int attempts || attempts < 1)
+                throw new InvalidOperationException("El límite de login devolvió un contador inválido.");
+            return attempts;
+        }
+        finally
+        {
+            await _coreDb.Database.CloseConnectionAsync();
+        }
+    }
+
     private string GenerarToken(Usuario usuario, string rolCanonico)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Key));
@@ -129,6 +344,8 @@ public class AuthController : ControllerBase
             new(JwtRegisteredClaimNames.Sub, usuario.Id.ToString()),
             new(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new("sv", usuario.VersionSesion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ClaimValueTypes.Integer32),
             new(ClaimTypes.Name, usuario.Email),
             new(ClaimTypes.Role, rolCanonico),
             new(JwtRegisteredClaimNames.Iat,

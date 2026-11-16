@@ -60,6 +60,58 @@ public class ConfiguracionPasarelaI2B1Tests
             new ServiceCollection().AddFinanceServices(Configurar("Stripe", "true"), isDevelopment: true));
     }
 
+    // F436: bank/provider integration stays explicitly disabled until
+    // an approved provider has real sandbox contracts, secrets and controls.
+    [Theory]
+    [InlineData("PayPal")]
+    [InlineData("Stripe")]
+    [InlineData("Real")]
+    [InlineData("Disabled-but-not-really")]
+    [InlineData("")]
+    public void F436_Production_RechazaCualquierProveedorNoImplementado(string provider)
+    {
+        var services = new ServiceCollection();
+        Assert.Throws<InvalidOperationException>(() =>
+            services.AddFinanceServices(Configurar(provider, "true"), isDevelopment: false));
+        Assert.Empty(services);
+    }
+
+    [Theory]
+    [InlineData(true, "true")]
+    [InlineData(false, "true")]
+    [InlineData(true, "false")]
+    [InlineData(false, null)]
+    public async Task F436_Disabled_DominaSobreFlagMockEnTodosLosEntornos(
+        bool isDevelopment, string? enableMock)
+    {
+        var services = new ServiceCollection();
+        services.AddFinanceServices(Configurar("Disabled", enableMock), isDevelopment);
+        using var sp = services.BuildServiceProvider();
+        Assert.True(sp.GetRequiredService<PaymentOperationsMode>().IsDisabled);
+        var gateway = sp.GetRequiredService<IPaymentGateway>();
+        Assert.IsType<PagoServiceDisabled>(gateway);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            gateway.ProcesarPagoAsync(new MarketplaceERP.Shared.DTOs.PagoRequest(
+                Guid.NewGuid(), Guid.NewGuid(), 1m, "USD", "F436-offline-test")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void F438_Disabled_NoRegistraGatewayDeRecuperacionNiMock(bool isDevelopment)
+    {
+        var services = new ServiceCollection();
+        services.AddFinanceServices(Configurar("Disabled", "true"), isDevelopment);
+        using var sp = services.BuildServiceProvider();
+        Assert.True(sp.GetRequiredService<PaymentOperationsMode>().IsDisabled);
+        Assert.IsType<PagoServiceDisabled>(sp.GetRequiredService<IPaymentGateway>());
+        // Never present an absent, unapproved bank reconciliation integration
+        // as usable just because the mock opt-in flag was accidentally set.
+        Assert.Null(sp.GetService<IPaymentRecoveryGateway>());
+        Assert.Null(sp.GetService<EvaluadorConciliacionPago>());
+        Assert.Null(sp.GetService<RecuperacionFinancieraService>());
+    }
+
     [Fact]
     public void Development_ConOptInExplicito_RegistraSolamenteElMock()
     {

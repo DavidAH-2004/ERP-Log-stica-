@@ -20,13 +20,18 @@ const WmsPage = lazy(() => import('./pages/wms/WmsPage'));
 const FulfillmentPage = lazy(() => import('./pages/fulfillment/FulfillmentPage'));
 const RmaPage = lazy(() => import('./pages/rma/RmaPage'));
 const ComprasPage = lazy(() => import('./pages/compras/ComprasPage'));
+const ComprasArchivosPage = lazy(() => import('./pages/compras/ComprasArchivosPage'));
 const ContabilidadPage = lazy(() => import('./pages/contabilidad/ContabilidadPage'));
 const LiquidacionesPage = lazy(() => import('./pages/liquidaciones/LiquidacionesPage'));
 const ProductosPage = lazy(() => import('./pages/productos/ProductosPage'));
+const EtiquetasPage = lazy(() => import('./pages/productos/EtiquetasPage'));
+const RotacionesEanPage = lazy(() => import('./pages/productos/RotacionesEanPage'));
 const ReabastecimientoPage = lazy(() => import('./pages/reabastecimiento/ReabastecimientoPage'));
 const ProveedoresPage = lazy(() => import('./pages/proveedores/ProveedoresPage'));
 const AjustesPage = lazy(() => import('./pages/ajustes/AjustesPage'));
 const ConteosPage = lazy(() => import('./pages/conteos/ConteosPage'));
+const EscanerConteosPage = lazy(() => import('./pages/conteos/EscanerConteosPage'));
+const SesionConteoPage = lazy(() => import('./pages/conteos/SesionConteoPage'));
 const AlertasInventarioPage = lazy(() => import('./pages/alertas/AlertasInventarioPage'));
 const BloqueosInventarioPage = lazy(() => import('./pages/bloqueos/BloqueosInventarioPage'));
 
@@ -98,7 +103,11 @@ function RouteLoading() {
 }
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+
+  // F354: wait for the BFF to verify the HttpOnly session before redirecting.
+  // The legacy bearer mode starts immediately (isLoading=false).
+  if (isLoading) return <RouteLoading />;
 
   return (
     <Suspense fallback={<RouteLoading />}>
@@ -120,14 +129,19 @@ function AppRoutes() {
           <Route path="proveedores" element={<RoleRouteGuard allowedRoles={['Admin']}><ProveedoresPage /></RoleRouteGuard>} />
           <Route path="ajustes" element={<RoleRouteGuard allowedRoles={['Admin']}><AjustesPage /></RoleRouteGuard>} />
           <Route path="conteos" element={<RoleRouteGuard allowedRoles={['Admin']}><ConteosPage /></RoleRouteGuard>} />
+        <Route path="conteos/escaner" element={<RoleRouteGuard allowedRoles={['Admin']}><EscanerConteosPage /></RoleRouteGuard>} />
+        <Route path="conteos/escaner/:id" element={<RoleRouteGuard allowedRoles={['Admin']}><SesionConteoPage /></RoleRouteGuard>} />
           <Route path="alertas-inventario" element={<RoleRouteGuard allowedRoles={['Admin']}><AlertasInventarioPage /></RoleRouteGuard>} />
           <Route path="bloqueos-inventario" element={<RoleRouteGuard allowedRoles={['Admin']}><BloqueosInventarioPage /></RoleRouteGuard>} />
           <Route path="fulfillment" element={<RoleRouteGuard allowedRoles={['Admin']}><FulfillmentPage /></RoleRouteGuard>} />
           <Route path="rma" element={<RoleRouteGuard allowedRoles={['Admin']}><RmaPage /></RoleRouteGuard>} />
           <Route path="compras" element={<RoleRouteGuard allowedRoles={['Admin']}><ComprasPage /></RoleRouteGuard>} />
+          <Route path="compras-archivos" element={<RoleRouteGuard allowedRoles={['Admin']}><ComprasArchivosPage /></RoleRouteGuard>} />
           <Route path="contabilidad" element={<RoleRouteGuard allowedRoles={['Admin']}><ContabilidadPage /></RoleRouteGuard>} />
           <Route path="liquidaciones" element={<RoleRouteGuard allowedRoles={['Admin']}><LiquidacionesPage /></RoleRouteGuard>} />
           <Route path="productos" element={<RoleRouteGuard allowedRoles={['Admin', 'Vendedor']}><ProductosPage /></RoleRouteGuard>} />
+          <Route path="productos/rotaciones" element={<RoleRouteGuard allowedRoles={['Admin']}><RotacionesEanPage /></RoleRouteGuard>} />
+        <Route path="productos/etiquetas" element={<RoleRouteGuard allowedRoles={['Admin', 'Vendedor']}><EtiquetasPage /></RoleRouteGuard>} />
           <Route path="sin-acceso" element={<SinAccesoPage />} />
         </Route>
 

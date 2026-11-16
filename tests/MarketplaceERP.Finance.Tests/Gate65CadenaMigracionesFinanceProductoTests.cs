@@ -19,6 +19,8 @@ public sealed class Gate65CadenaMigracionesFinanceProductoTests : IAsyncLifetime
     private const string Audit = "20261109203804_CancelacionPreEnvioAuditada";
     private const string Fin08 = "20261110024500_FIN08UnicidadAsientosVentaLiquidacion";
     private const string Fin09 = "20261110050932_FIN09LiquidacionUnoAMuchosExpandir";
+    // F483 adds a non-commercial, append-only inbox after FIN09.
+    private const string LatestFinance = "20261116062428_F601ComprasArchivosDurable";
 
     private readonly string _dbName = "gate65_chain_" + Guid.NewGuid().ToString("N");
     private string? _adminConnection;
@@ -143,7 +145,7 @@ public sealed class Gate65CadenaMigracionesFinanceProductoTests : IAsyncLifetime
         query.Parameters.AddWithValue("product", productId);
         await using var reader = await query.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
-        Assert.Equal(Fin09, reader.GetString(0));
+        Assert.Equal(LatestFinance, reader.GetString(0));
         Assert.Equal(4L, reader.GetInt64(1));
         Assert.Equal(0L, reader.GetInt64(2));
         Assert.Equal(1L, reader.GetInt64(3));

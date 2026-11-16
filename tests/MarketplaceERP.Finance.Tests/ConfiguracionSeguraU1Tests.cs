@@ -43,6 +43,20 @@ public class ConfiguracionSeguraU1Tests
     [Theory]
     [InlineData(null)]
     [InlineData("Development")]
+    public void F439_VersionedSettings_DoNotActivatePaymentOrExperimentalAuth(string? environment)
+    {
+        using var configuration = JsonConfiguration(environment);
+        // All sensitive runtime toggles must remain environment-scoped and
+        // explicitly opted into; source-controlled JSON cannot turn them on.
+        Assert.True(string.IsNullOrWhiteSpace(configuration["Payments:Provider"]));
+        Assert.True(string.IsNullOrWhiteSpace(configuration["Payments:EnableMock"]));
+        Assert.True(string.IsNullOrWhiteSpace(configuration["Auth:EnableSessionVersionCheck"]));
+        Assert.True(string.IsNullOrWhiteSpace(configuration["Auth:EnableDistributedAccountLoginThrottle"]));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Development")]
     public void CanonicalEnvironmentKeys_OverrideJsonWithoutStartingApplication(string? environment)
     {
         // Unique prefix avoids reading or changing the developer's real connection/JWT variables.

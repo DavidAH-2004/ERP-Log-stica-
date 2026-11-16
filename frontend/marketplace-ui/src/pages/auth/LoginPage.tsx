@@ -24,21 +24,15 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(email, password);
-      // Redirigir según el rol o al inicio
-      const stored = localStorage.getItem('erp_usuario');
-      if (stored) {
-        try {
-          const u = JSON.parse(stored);
-          if (u.rol === 'Comprador') {
-            navigate('/checkout');
-            return;
-          }
-          if (u.rol === 'Vendedor') {
-            navigate('/productos');
-            return;
-          }
-        } catch { /* ignore */ }
+      const authenticatedUser = await login(email, password);
+      // Role comes from the verified AuthProvider, never browser storage.
+      if (authenticatedUser.rol === 'Comprador') {
+        navigate('/checkout');
+        return;
+      }
+      if (authenticatedUser.rol === 'Vendedor') {
+        navigate('/productos');
+        return;
       }
       navigate('/dashboard');
     } catch (err: any) {

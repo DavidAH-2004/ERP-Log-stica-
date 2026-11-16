@@ -4,6 +4,7 @@
  */
 
 using System.Security.Claims;
+using System.Text.Json;
 using MarketplaceERP.API.Contracts;
 using MarketplaceERP.Catalog.Data;
 using MarketplaceERP.Catalog.Entities;
@@ -336,6 +337,7 @@ public class ProductosController : ControllerBase
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(ImportResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> ImportarCsv(IFormFile archivo)
     {
         if (archivo is null || archivo.Length == 0)
@@ -346,9 +348,16 @@ public class ProductosController : ControllerBase
         var defaultCategoriaId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
         using var stream = archivo.OpenReadStream();
-        var resultado = await _importService.ImportarCatalogoCsvAsync(stream, defaultVendedorId, defaultCategoriaId);
-
-        return Ok(resultado);
+        try
+        {
+            var resultado = await _importService.ImportarCatalogoCsvAsync(
+                stream, defaultVendedorId, defaultCategoriaId);
+            return Ok(resultado);
+        }
+        catch (CodigoEanDuplicadoException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>
@@ -381,8 +390,16 @@ public class ProductosController : ControllerBase
             return NotFound(new { mensaje = "No se encontró el archivo Catalogo_500_Productos.csv en el servidor." });
         }
 
-        var resultado = await _importService.ImportarCatalogoDesdeArchivoAsync(rutaEncontrada, defaultVendedorId, defaultCategoriaId);
-        return Ok(resultado);
+        try
+        {
+            var resultado = await _importService.ImportarCatalogoDesdeArchivoAsync(
+                rutaEncontrada, defaultVendedorId, defaultCategoriaId);
+            return Ok(resultado);
+        }
+        catch (CodigoEanDuplicadoException ex)
+        {
+            return Conflict(new { mensaje = ex.Message });
+        }
     }
 
     /// <summary>
@@ -468,10 +485,27 @@ public class ProductosController : ControllerBase
     [Authorize(Roles = "Admin,Vendedor")]
     [ProducesResponseType(typeof(Producto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create([FromBody] Producto producto)
     {
         if (producto is null)
             return BadRequest(new { mensaje = "El producto no puede ser nulo." });
+
+        // F418: el alta interactiva no puede registrar códigos no escaneables.
+        // Los EAN del prefijo interno 20 deben emitirse por el servicio Admin
+        // transaccional, nunca por POST directo de Admin o Vendedor.
+        // Un identificador externo con checksum válido puede ser declarado,
+        // pero su validez matemática no certifica titularidad GS1.
+        string? eanSolicitado = string.IsNullOrWhiteSpace(producto.CodigoEAN)
+            ? null
+            : producto.CodigoEAN.Trim();
+        if (!string.IsNullOrEmpty(eanSolicitado))
+        {
+            if (!CodigoBarras.EsEan13Valido(eanSolicitado))
+                return BadRequest(new { mensaje = "Código EAN inválido: requiere 13 dígitos y verificador correcto." });
+            if (CodigoBarras.EsInterno(eanSolicitado))
+                return BadRequest(new { mensaje = "Los EAN internos se asignan únicamente desde la operación Admin dedicada." });
+        }
 
         // Los GUID de plantilla no representan registros Core reales.
         // Esto es una barrera mínima de integridad, no sustituye
@@ -524,6 +558,14 @@ public class ProductosController : ControllerBase
                 return BadRequest(new { mensaje = "Selecciona un proveedor activo del maestro Core." });
         }
 
+        // F419: prevenir que dos SKU compartan el mismo EAN incluso entre
+        // vendedores. La consulta previa mejora el HTTP de un conflicto
+        // ordinario; el índice único en PostgreSQL protege carreras reales.
+        if (eanSolicitado is not null &&
+            await _dbContext.Productos.AsNoTracking()
+                .AnyAsync(p => p.CodigoEAN == eanSolicitado))
+            return Conflict(new { mensaje = "El EAN ya está asignado a otro producto." });
+
         // Lista blanca de campos maestros. Producto es una entidad EF con
         // navegaciones públicas (Stock, Reservas, Movimientos, etc.) que pueden
         // llegar por JSON; nunca insertar el grafo recibido con DbContext.Add.
@@ -548,7 +590,7 @@ public class ProductosController : ControllerBase
             DimensionesCm = producto.DimensionesCm,
             UnidadMedida = producto.UnidadMedida,
             EstadoProducto = producto.EstadoProducto,
-            CodigoEAN = producto.CodigoEAN,
+            CodigoEAN = eanSolicitado,
             VendedorId = vendedorId,
             CategoriaId = producto.CategoriaId,
             EstaPublicado = producto.EstaPublicado,
@@ -557,7 +599,19 @@ public class ProductosController : ControllerBase
         };
 
         _dbContext.Productos.Add(nuevoProducto);
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (
+            ex.InnerException is Npgsql.PostgresException pg &&
+            pg.SqlState == "23505" &&
+            pg.ConstraintName == "UX_productos_CodigoEAN_no_vacio")
+        {
+            // Otro escritor ganó la carrera: el cliente debe ver 409, no 500.
+            _dbContext.ChangeTracker.Clear();
+            return Conflict(new { mensaje = "El EAN ya está asignado a otro producto." });
+        }
 
         _logger.LogInformation(
             "Producto creado. Id={Id}, SKU={Sku}, Nombre={Nombre}, VendedorId={VendedorId}",
@@ -589,6 +643,23 @@ public class ProductosController : ControllerBase
             var vendedorId = ObtenerVendedorIdActual();
             if (!vendedorId.HasValue || producto.VendedorId != vendedorId.Value)
                 return Forbid();
+        }
+
+        // F427: never silently accept an attempted EAN rotation via the
+        // general product edit. A historical label remains bound to its
+        // original product until the separately audited alias design (#71).
+        // Omission or an identical existing EAN are harmless no-ops.
+        // JsonElement differentiates omitted (Undefined) from explicit JSON
+        // null. Otherwise a deletion attempt could be silently accepted as 200.
+        if (request.CodigoEAN.ValueKind != JsonValueKind.Undefined)
+        {
+            var valor = request.CodigoEAN.ValueKind == JsonValueKind.String
+                ? request.CodigoEAN.GetString() : null;
+            if (request.CodigoEAN.ValueKind is not (JsonValueKind.String or JsonValueKind.Null) ||
+                !string.Equals(valor, producto.CodigoEAN, StringComparison.Ordinal))
+                return Conflict(new { mensaje =
+                    "No se puede cambiar ni borrar el EAN desde la edición general. " +
+                    "La rotación requiere un proceso Admin auditado independiente." });
         }
 
         // Se permiten referencias históricas sin vincular solo cuando NO se modifican.
@@ -759,4 +830,7 @@ public record ActualizarProductoRequest(
     string DimensionesCm,
     string UnidadMedida,
     string EstadoProducto,
-    bool EstaPublicado);
+    bool EstaPublicado,
+    // F427: omitted (Undefined), explicit null and supplied strings are
+    // distinct at the HTTP boundary; an existing EAN cannot be erased.
+    JsonElement CodigoEAN = default);

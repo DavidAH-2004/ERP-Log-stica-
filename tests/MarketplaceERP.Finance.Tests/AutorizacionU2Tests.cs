@@ -79,6 +79,10 @@ public class AutorizacionU2Tests
     [InlineData(typeof(KpisDashboardController), "ObtenerDashboard")]
     [InlineData(typeof(LiquidacionesController), "Historial")]
     [InlineData(typeof(UsuariosController), "Crear")]
+    [InlineData(typeof(RotacionesEanController), "Historial")]
+    [InlineData(typeof(RotacionesEanController), "Solicitar")]
+    [InlineData(typeof(RotacionesEanController), "Aprobar")]
+    [InlineData(typeof(RotacionesEanController), "Cancelar")]
     public async Task AdministrativeActions_RejectAnonymousAndNonAdmin(Type controller, string action)
     {
         Assert.NotNull(controller.GetMethod(action));
@@ -185,6 +189,8 @@ public class AutorizacionU2Tests
         {
             actions++;
             var publicLogin = controller == typeof(AuthController) && action.Name == nameof(AuthController.Login);
+            var sessionRead = controller == typeof(AuthController) && action.Name == nameof(AuthController.Session);
+            var sessionLogout = controller == typeof(AuthController) && action.Name == nameof(AuthController.Logout);
             // Checkout V1, cotización QA aislada y checkout comercial multi-SKU
             // conservan la matriz exclusiva de Comprador. La simulación QA sigue
             // restringida al sandbox; Admin y Vendedor no pueden ejecutar cobros.
@@ -226,8 +232,17 @@ public class AutorizacionU2Tests
                 action.Name == nameof(ProductosController.GetAlertasStock) ||
                 action.Name == nameof(ProductosController.GetCatalogoB2B));
 
-            var allowsSeller = publicLogin || isProductCatalogRead || isProductSellerOp || sellerOwnOrders;
-            var allowsBuyer = publicLogin || buyerCheckout || buyerTracking || buyerOrder || isProductCatalogRead;
+            // F353: sesión GET es read-only y válida para los tres roles.
+            // El endpoint comprueba que la cuenta siga activa y su rol no haya cambiado.
+            if (sessionRead || sessionLogout)
+                Assert.Equal("Admin,Vendedor,Comprador", action.GetCustomAttribute<AuthorizeAttribute>()?.Roles);
+            // F401: barcode label and exact-scan read endpoints are restricted to
+            // Admin/Vendedor; Seller scope is additionally enforced inside the action.
+            var barcodeRead = controller == typeof(ProductosCodigoBarrasController) && (
+                action.Name == nameof(ProductosCodigoBarrasController.Etiquetas) ||
+                action.Name == nameof(ProductosCodigoBarrasController.BuscarPorCodigo));
+            var allowsSeller = publicLogin || sessionRead || sessionLogout || isProductCatalogRead || isProductSellerOp || sellerOwnOrders || barcodeRead;
+            var allowsBuyer = publicLogin || sessionRead || sessionLogout || buyerCheckout || buyerTracking || buyerOrder || isProductCatalogRead;
 
             var metadata = controller.GetCustomAttributes(inherit: true).Concat(action.GetCustomAttributes(inherit: true)).ToArray();
             Assert.Equal(publicLogin, metadata.OfType<IAllowAnonymous>().Any());
@@ -253,10 +268,10 @@ public class AutorizacionU2Tests
         // Sandbox QA: +2 endpoints de comprador y referencias reales de producto.
         // OMS evaluación: +1 controlador y +2 rutas exclusivas de Admin.
         // F103: +2 GET de Vendedor. Checkout comercial V2: +1 controlador/acción/ruta.
-        // Ninguna autorización queda implícita.
-        Assert.Equal(27, controllers.Length);
-        Assert.Equal(99, actions);
-        Assert.Equal(100, routes); // Productos/GetAlertasStock tiene dos alias.
+        // F401: +1 controlador de códigos de barras con 2 GET Admin/Vendedor.\n        // F399: +1 controlador Admin-only con 8 endpoints de sesiones escaneadas.`n        // Ninguna autorización queda implícita.
+        Assert.Equal(31, controllers.Length);
+        Assert.Equal(119, actions); // F499: includes six PR #72 selector endpoints and F360 logout.
+        Assert.Equal(120, routes); // One extra Productos/GetAlertasStock alias.
     }
 
     [Theory]

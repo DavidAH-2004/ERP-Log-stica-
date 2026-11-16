@@ -3,6 +3,7 @@
  * Todos los derechos reservados © 2026
  */
 
+import { comprasArchivosApi } from '../../api/comprasArchivos';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ShoppingCart, FileText, CheckCircle2, AlertTriangle, Plus, RefreshCw, Send, ShieldCheck, PackageCheck } from 'lucide-react';
 import DataTable from '../../components/ui/DataTable';
@@ -13,7 +14,7 @@ import { useToast } from '../../context/ToastContext';
 import { comprasApi, type CrearPORequest, type RegistrarFacturaRequest, type Validar3WayMatchRequest, type RecibirMercaderiaRequest } from '../../api/compras';
 import { wmsApi } from '../../api/wms';
 import { proveedoresApi, type ProveedorLogistico } from '../../api/proveedores';
-import ProductoPOSelector from './ProductoPOSelector';
+import ItemsPOEditor, { itemPOValido, totalesPO } from './ItemsPOEditor';
 import type { OrdenCompra, FacturaProveedor, MatchTridireccional, UbicacionAlmacen } from '../../types';
 
 type RecepcionLinea = {
@@ -42,11 +43,11 @@ export default function ComprasPage() {
     terminosPago: 'Crédito 30 días',
     observaciones: '',
     fechaEntregaEsperada: new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-    items: [
-      { sku: '', nombreProducto: '', cantidad: 1, precioUnitario: 0 },
-    ],
+    items: [],
   });
   const [savingPo, setSavingPo] = useState(false);
+  const [itemPendiente, setItemPendiente] = useState(false);
+  const creandoPo = useRef(false);
   const [proveedores, setProveedores] = useState<ProveedorLogistico[]>([]);
   const [loadingProveedores, setLoadingProveedores] = useState(true);
 
@@ -60,6 +61,15 @@ export default function ComprasPage() {
     fechaEmision: new Date().toISOString().split('T')[0],
   });
   const [savingFactura, setSavingFactura] = useState(false);
+  const [facturaPO, setFacturaPO] = useState<OrdenCompra | null>(null);
+
+  const actualizarLineaFactura = (index: number, campo: 'cantidadFacturada' | 'precioUnitarioFacturado', valor: number) => {
+    setFacturaForm(f => {
+      const lineas = (f.lineas ?? []).map((linea, i) => i === index ? { ...linea, [campo]: valor } : linea);
+      const totales = totalesPO(lineas.map(l => ({ sku: '', nombreProducto: '', cantidad: l.cantidadFacturada, precioUnitario: l.precioUnitarioFacturado })));
+      return { ...f, lineas, subTotal: totales.subtotal, montoTotal: totales.total };
+    });
+  };
 
   // 3-Way Match Modal / State
   const [matchModalOpen, setMatchModalOpen] = useState(false);
@@ -92,16 +102,27 @@ export default function ComprasPage() {
     setLoading(true);
     setErrorCarga('');
     try {
-      const [poRes, matchRes] = await Promise.all([
+      // Una falla del historial 3-Way Match no debe ocultar PO ya persistidas.
+      const [poResult, matchResult] = await Promise.allSettled([
         comprasApi.listarPO({ tamano: 50 }),
         comprasApi.historialMatch(),
       ]);
-      setOrdenesCompra(poRes.ordenesCompra || []);
-      setMatches(matchRes || []);
+      const errores: string[] = [];
+      if (poResult.status === 'fulfilled') {
+        setOrdenesCompra(poResult.value.ordenesCompra || []);
+      } else {
+        setOrdenesCompra([]);
+        errores.push('No se pudieron cargar las órdenes de compra.');
+      }
+      if (matchResult.status === 'fulfilled') {
+        setMatches(matchResult.value || []);
+      } else {
+        setMatches([]);
+        errores.push('No se pudo cargar el historial de 3-Way Match.');
+      }
+      setErrorCarga(errores.join(' '));
     } catch (error) {
-      setOrdenesCompra([]);
-      setMatches([]);
-      setErrorCarga(error instanceof Error ? error.message : 'No se pudieron cargar Compras y 3-Way Match desde la API.');
+      setErrorCarga(error instanceof Error ? error.message : 'No se pudieron cargar los datos de Compras.');
     } finally {
       setLoading(false);
     }
@@ -181,15 +202,9 @@ export default function ComprasPage() {
     }
   };
   const handleCrearPO = async () => {
-    const linea = poForm.items[0];
-    if (!linea?.sku || !linea.nombreProducto) {
-      toast.warning('Producto requerido', 'Selecciona un producto activo del catálogo.');
-      return;
-    }
-    if (!Number.isInteger(linea.cantidad) || linea.cantidad <= 0 ||
-        !Number.isFinite(linea.precioUnitario) || linea.precioUnitario <= 0 ||
-        Math.round(linea.precioUnitario * 100) !== linea.precioUnitario * 100) {
-      toast.warning('Cantidad o precio inválido', 'Indica una cantidad positiva y un precio de compra mayor que cero, con máximo dos decimales.');
+    if (creandoPo.current) return;
+    if (itemPendiente || poForm.items.length < 1 || poForm.items.length > 10 || !poForm.items.every(itemPOValido)) {
+      toast.warning('Revisa los ítems', 'Agrega entre 1 y 10 productos válidos y guarda o cancela el ítem pendiente.');
       return;
     }
     if (!poForm.proveedorId) {
@@ -197,6 +212,7 @@ export default function ComprasPage() {
       return;
     }
 
+    creandoPo.current = true;
     setSavingPo(true);
     try {
       await comprasApi.crearPO(poForm);
@@ -205,9 +221,26 @@ export default function ComprasPage() {
       await loadData();
     } catch (error) {
       const mensaje = error instanceof Error ? error.message : 'No fue posible crear la Orden de Compra.';
-      toast.error('Error al crear PO', mensaje);
+      toast.error('No se pudo confirmar la PO', mensaje + ' Verifica primero el listado de órdenes antes de intentar crearla otra vez.');
     } finally {
+      creandoPo.current = false;
       setSavingPo(false);
+    }
+  };
+
+  const descargarArchivoPO = async (poId: string, numero: string) => {
+    try {
+      const pdf = await comprasArchivosApi.pdf(poId);
+      const blobUrl = URL.createObjectURL(pdf);
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = numero + '.pdf';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120_000);
+    } catch (error) {
+      toast.error('No se pudo descargar el PDF', error instanceof Error ? error.message : 'Archivo no disponible.');
     }
   };
 
@@ -302,6 +335,13 @@ export default function ComprasPage() {
   };
 
   const handleRegistrarFactura = async () => {
+    if (savingFactura) return;
+    if (!facturaForm.lineas?.length || facturaForm.lineas.some(l => !itemPOValido({
+      sku: l.itemOrdenCompraId, nombreProducto: 'Factura', cantidad: l.cantidadFacturada, precioUnitario: l.precioUnitarioFacturado,
+    }))) {
+      toast.warning('Detalle requerido', 'Captura la cantidad y el precio de cada producto según la factura del proveedor.');
+      return;
+    }
     setSavingFactura(true);
     try {
       await comprasApi.registrarFactura(facturaForm);
@@ -343,8 +383,6 @@ export default function ComprasPage() {
   };
 
   const proveedorSeleccionado = proveedores.find(p => p.id === poForm.proveedorId);
-  const subtotalPo = Math.round((poForm.items[0]?.cantidad ?? 0) * (poForm.items[0]?.precioUnitario ?? 0) * 100) / 100;
-  const ivaPo = Math.round(subtotalPo * 0.13 * 100) / 100;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -381,8 +419,9 @@ export default function ComprasPage() {
               setPoForm({
                 proveedorId: '', proveedorNombre: '', terminosPago: 'Crédito 30 días',
                 observaciones: '', fechaEntregaEsperada: new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-                items: [{ sku: '', nombreProducto: '', cantidad: 1, precioUnitario: 0 }],
+                items: [],
               });
+              setItemPendiente(false);
               setPoModalOpen(true);
             }}
             style={{
@@ -405,7 +444,7 @@ export default function ComprasPage() {
       </div>
 
       {errorCarga && (
-        <AlertBanner variant="danger" title="Compras no disponible" message={errorCarga} action={{ label: 'Reintentar', onClick: loadData }} />
+        <AlertBanner variant="danger" title="No se pudieron cargar todos los datos" message={errorCarga} action={{ label: 'Reintentar', onClick: loadData }} />
       )}
 
       {/* Attention List (Efferd Dashboard #6: Items requiring operational attention) */}
@@ -509,6 +548,11 @@ export default function ComprasPage() {
               render: (row) => <span style={{ fontWeight: 600 }}>{row.nombreProveedor}</span>,
             },
             {
+              header: 'Productos',
+              accessor: 'items',
+              render: (row) => <span>{row.items.length}</span>,
+            },
+            {
               header: 'Monto Total',
               accessor: 'montoTotal',
               render: (row) => (
@@ -535,7 +579,13 @@ export default function ComprasPage() {
               header: 'Acciones',
               accessor: 'id',
               render: (row) => (
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => void descargarArchivoPO(row.id, row.numeroPO)}
+                    style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.6rem', background: 'var(--bg-surface)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '0.75rem' }}
+                  >
+                    Descargar PDF
+                  </button>
                   {row.estado === 'Borrador' && (
                     <button
                       onClick={() => handleEnviarPO(row.id)}
@@ -581,7 +631,11 @@ export default function ComprasPage() {
                   )}
                   <button
                     onClick={() => {
-                      setFacturaForm(f => ({ ...f, ordenCompraId: row.id, montoTotal: row.montoTotal, subTotal: Math.round(row.montoTotal / 1.13) }));
+                      setFacturaPO(row);
+                      setFacturaForm({ ordenCompraId: row.id, numeroFactura: '', subTotal: 0, montoTotal: 0,
+                        fechaEmision: new Date().toISOString().split('T')[0],
+                        lineas: row.items.map(item => ({ itemOrdenCompraId: item.id, cantidadFacturada: 0, precioUnitarioFacturado: 0 })),
+                      });
                       setFacturaModalOpen(true);
                     }}
                     style={{
@@ -731,16 +785,20 @@ export default function ComprasPage() {
       {poModalOpen && (
         <Modal
           title="Crear Nueva Orden de Compra (PO)"
+          size="lg"
           isOpen={true}
-          onClose={() => setPoModalOpen(false)}
+          onClose={() => { if (!creandoPo.current) setPoModalOpen(false); }}
         >
           <form
+            onKeyDown={e => { if (e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault(); }}
             onSubmit={(e) => {
               e.preventDefault();
-              handleCrearPO();
+              // Enter en los campos del ítem nunca debe crear una orden accidental.
+              if ((e.nativeEvent as SubmitEvent).submitter?.getAttribute('data-create-po') === 'true') void handleCrearPO();
             }}
             style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
           >
+            <fieldset disabled={savingPo} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
                 Proveedor del maestro corporativo
@@ -796,25 +854,17 @@ export default function ComprasPage() {
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
                   Términos de Pago
                 </label>
-                <select
-                  value={poForm.terminosPago}
-                  onChange={e => setPoForm(f => ({ ...f, terminosPago: e.target.value }))}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '6px',
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text-primary)',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <option value="Crédito 15 días">Crédito 15 días</option>
-                  <option value="Crédito 30 días">Crédito 30 días</option>
-                  <option value="Crédito 45 días">Crédito 45 días</option>
-                  <option value="Crédito 60 días">Crédito 60 días</option>
-                  <option value="Contado">Contado</option>
+                <select aria-label="Tipo de pago" value={poForm.terminosPago === 'Contado' ? 'Contado' : 'Crédito'}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                  onChange={e => setPoForm(f => ({ ...f, terminosPago: e.target.value === 'Contado' ? 'Contado' : 'Crédito 30 días' }))}>
+                  <option value="Contado">Contado</option><option value="Crédito">Crédito</option>
                 </select>
+                {poForm.terminosPago !== 'Contado' && <label style={{ display: 'block', marginTop: 8 }}>Días de crédito
+                  <input aria-label="Días de crédito" type="number" min="1" max="3650" step="1" required
+                    style={{ display: 'block', width: '100%', padding: '0.5rem', marginTop: 4, borderRadius: 6, boxSizing: 'border-box', border: '1px solid var(--border)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+                    value={poForm.terminosPago?.match(/\d+/)?.[0] ?? ''}
+                    onChange={e => setPoForm(f => ({ ...f, terminosPago: 'Crédito ' + e.target.value + ' días' }))} />
+                </label>}
               </div>
 
               <div>
@@ -823,6 +873,8 @@ export default function ComprasPage() {
                 </label>
                 <input
                   type="date"
+                  aria-label="Fecha estimada de entrega"
+                  required
                   value={poForm.fechaEntregaEsperada}
                   onChange={e => setPoForm(f => ({ ...f, fechaEntregaEsperada: e.target.value }))}
                   style={{
@@ -838,71 +890,8 @@ export default function ComprasPage() {
               </div>
             </div>
 
-            {/* Ítem de ejemplo en la PO */}
-            <div style={{ background: 'var(--bg-surface)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border)', minWidth: 0 }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                Ítems de la Orden
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', minWidth: 0 }}>
-                <div style={{ gridColumn: '1 / -1', minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</label>
-                  <ProductoPOSelector
-                    sku={poForm.items[0]?.sku ?? ''}
-                    nombre={poForm.items[0]?.nombreProducto ?? ''}
-                    disabled={savingPo}
-                    onSeleccionar={producto => setPoForm(f => ({
-                      ...f,
-                      items: [{
-                        ...f.items[0],
-                        sku: producto.sku,
-                        nombreProducto: producto.nombre,
-                        precioUnitario: producto.precioCompraReferencia ?? 0,
-                      }],
-                    }))}
-                  />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cantidad</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={poForm.items[0]?.cantidad}
-                    onChange={e => {
-                      const val = parseInt(e.target.value) || 0;
-                      setPoForm(f => ({ ...f, items: [{ ...f.items[0], cantidad: val }] }));
-                    }}
-                    style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-                  />
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio compra unit. ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    placeholder="Ingresar precio de compra"
-                    value={poForm.items[0]?.precioUnitario || ''}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0;
-                      setPoForm(f => ({ ...f, items: [{ ...f.items[0], precioUnitario: val }] }));
-                    }}
-                    style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
-                  />
-                </div>
-              </div>
-              <div style={{ marginTop: 6, color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
-                El precio inicial procede de la última orden de compra no cancelada, si existe.
-                Puedes modificarlo para esta compra. No se utilizan precios de venta.
-              </div>
-              <div style={{ textAlign: 'right', marginTop: '0.5rem', fontSize: 12, color: 'var(--text-secondary)' }}>
-                Subtotal: ${subtotalPo.toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                {' · '}IVA (13%): ${ivaPo.toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-              <div style={{ textAlign: 'right', marginTop: '0.25rem', fontWeight: 700, color: 'var(--green)' }}>
-                Total PO (con IVA): ${(subtotalPo + ivaPo).toLocaleString('es-SV', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
+            <ItemsPOEditor items={poForm.items} disabled={savingPo} onPendingChange={setItemPendiente}
+              onChange={items => setPoForm(f => ({ ...f, items }))} />
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '0.5rem' }}>
               <button
@@ -921,8 +910,8 @@ export default function ComprasPage() {
               </button>
               <button
                 type="submit"
-                disabled={savingPo || !poForm.proveedorId || !poForm.items[0]?.sku ||
-                  (poForm.items[0]?.cantidad ?? 0) <= 0 || (poForm.items[0]?.precioUnitario ?? 0) <= 0}
+                data-create-po="true"
+                disabled={savingPo || !poForm.proveedorId || poForm.items.length === 0 || itemPendiente}
                 style={{
                   padding: '0.5rem 1.25rem',
                   borderRadius: '6px',
@@ -930,13 +919,13 @@ export default function ComprasPage() {
                   background: 'var(--accent)',
                   color: '#fff',
                   fontWeight: 600,
-                  cursor: (savingPo || !poForm.proveedorId || !poForm.items[0]?.sku ||
-                    (poForm.items[0]?.cantidad ?? 0) <= 0 || (poForm.items[0]?.precioUnitario ?? 0) <= 0) ? 'not-allowed' : 'pointer',
+                  cursor: savingPo || itemPendiente ? 'not-allowed' : 'pointer',
                 }}
               >
                 {savingPo ? 'Guardando...' : 'Crear Orden'}
               </button>
             </div>
+            </fieldset>
           </form>
         </Modal>
       )}
@@ -1102,8 +1091,9 @@ export default function ComprasPage() {
       {facturaModalOpen && (
         <Modal
           title="Registrar Factura de Proveedor"
+          size="lg"
           isOpen={true}
-          onClose={() => setFacturaModalOpen(false)}
+          onClose={() => { if (!savingFactura) setFacturaModalOpen(false); }}
         >
           <form
             onSubmit={(e) => {
@@ -1133,6 +1123,21 @@ export default function ComprasPage() {
               />
             </div>
 
+            <p>Captura las cantidades y precios del documento del proveedor. El 3-Way Match los comparará con la orden y la recepción.</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table aria-label="Detalle de factura" style={{ width: '100%', textAlign: 'left' }}>
+                <thead><tr><th>Producto</th><th>Cantidad facturada</th><th>Precio facturado ($)</th></tr></thead>
+                <tbody>{facturaPO?.items.map((item, index) => <tr key={item.id}>
+                  <td>{item.descripcion}<br /><small>{item.skuReferencia}</small></td>
+                  <td><input aria-label={`Cantidad facturada ${item.skuReferencia}`} type="number" min="1" step="1" required disabled={savingFactura}
+                    value={facturaForm.lineas?.[index]?.cantidadFacturada || ''}
+                    onChange={e => actualizarLineaFactura(index, 'cantidadFacturada', Number(e.target.value))} style={{ width: 100 }} /></td>
+                  <td><input aria-label={`Precio facturado ${item.skuReferencia}`} type="number" min="0.01" step="0.01" required disabled={savingFactura}
+                    value={facturaForm.lineas?.[index]?.precioUnitarioFacturado || ''}
+                    onChange={e => actualizarLineaFactura(index, 'precioUnitarioFacturado', Number(e.target.value))} style={{ width: 120 }} /></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
@@ -1142,7 +1147,7 @@ export default function ComprasPage() {
                   type="number"
                   step="0.01"
                   value={facturaForm.subTotal}
-                  onChange={e => setFacturaForm(f => ({ ...f, subTotal: parseFloat(e.target.value) || 0 }))}
+                  readOnly
                   required
                   style={{
                     width: '100%',
@@ -1164,7 +1169,7 @@ export default function ComprasPage() {
                   type="number"
                   step="0.01"
                   value={facturaForm.montoTotal}
-                  onChange={e => setFacturaForm(f => ({ ...f, montoTotal: parseFloat(e.target.value) || 0 }))}
+                  readOnly
                   required
                   style={{
                     width: '100%',
