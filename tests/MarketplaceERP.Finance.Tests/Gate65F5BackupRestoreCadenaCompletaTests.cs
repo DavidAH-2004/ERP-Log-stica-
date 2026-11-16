@@ -21,6 +21,8 @@ public sealed class Gate65F5BackupRestoreCadenaCompletaTests : IAsyncLifetime
     private const string Auditoria = "20261109203804_CancelacionPreEnvioAuditada";
     private const string Fin08 = "20261110024500_FIN08UnicidadAsientosVentaLiquidacion";
     private const string Fin09 = "20261110050932_FIN09LiquidacionUnoAMuchosExpandir";
+    // F483 adds a non-commercial, append-only inbox after FIN09.
+    private const string LatestFinance = "20261116060000_F483InboxWebhooksPagosDiferidos";
     private readonly string _src = "gate65_f5_src_" + Guid.NewGuid().ToString("N");
     private readonly string _dst = "gate65_f5_dst_" + Guid.NewGuid().ToString("N");
     private readonly string _dump = Path.Combine(AppContext.BaseDirectory,
@@ -225,7 +227,7 @@ public sealed class Gate65F5BackupRestoreCadenaCompletaTests : IAsyncLifetime
             Assert.Equal(1L, read.GetInt64(4));
             Assert.True(read.GetBoolean(5));
             Assert.True(read.GetBoolean(6));
-            Assert.Equal(Fin09, read.GetString(7));
+            Assert.Equal(LatestFinance, read.GetString(7));
         }
 
         // El origen NO se migra: sigue como punto de recuperación físico FIN07.
