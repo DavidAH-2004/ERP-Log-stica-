@@ -104,6 +104,23 @@ public sealed class F472ReleaseBoundaryTests
         Assert.Contains(roles, x => x.Roles == "Admin");
     }
 
+    [Theory]
+    [InlineData("4006381333931")]
+    [InlineData("5901234123457")]
+    [InlineData("2000000000014")]
+    public void F487_ExternalOrInvalidEANRotationRejectedBeforeDatabase(string proposed)
+    {
+        using var db = new CatalogDbContext(new DbContextOptionsBuilder<CatalogDbContext>()
+            .UseInMemoryDatabase("f487-" + Guid.NewGuid()).Options);
+        var service = new RotacionEanService(db);
+        Assert.Throws<ArgumentException>(() =>
+            service.SolicitarAsync(
+                Guid.NewGuid(), Guid.NewGuid(), proposed,
+                "Justificación de política de prefijo interno",
+                Guid.NewGuid()));
+        Assert.Empty(db.ChangeTracker.Entries());
+    }
+
     [Fact]
     public void F472_RealPaymentGatewayCannotActivateInProductionOrResolveRecovery()
     {

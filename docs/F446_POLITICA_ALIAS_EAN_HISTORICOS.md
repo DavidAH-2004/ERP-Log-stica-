@@ -1,6 +1,6 @@
 # F446 — Diseño de alias y reserva irreversible de EAN históricos
 
-**Alcance:** issue #70, requisitos transferidos de #71. Diseño técnico cerrado; **funcionalidad no implementada**, sin migración aplicada, sin rotación ni normalización de etiquetas actuales. Fecha de definición: 15-nov-2026.
+**Alcance:** issue #70, requisitos transferidos de #71. Diseño y código F451/F470/F481/F476 implementados en development con pruebas PostgreSQL/Chromium CI; NO aplicados a Neon cloud, NI habilitados en Render/Production. Definición inicial: 15-nov-2026.
 
 ## Invariantes de negocio
 
@@ -11,7 +11,7 @@
 - Los EAN históricos inválidos se conservan como dato maestro y evidencia de procedencia, pero **no** se emiten como etiquetas escaneables ni se convierten silenciosamente en aliases activos.
 - El borrado lógico de Producto no libera EAN ni alias para otro producto. Las entradas de auditoría no se borran con el producto comercial.
 
-## Propuesta de esquema PostgreSQL 15 (a migrar solo tras pruebas)
+## Esquema PostgreSQL 15 implementado en código (NO migrado a Neon)
 
 `catalog.reservas_ean` — registro único de cada EAN-13 jamás emitido:
 - `CodigoEAN varchar(13) PRIMARY KEY`, checksum EAN-13 validado a nivel aplicación y constraint de patrón SQL; no se confía exclusivamente en regex SQL para el dígito verificador.
@@ -51,7 +51,7 @@
 - Impresora Avery 5160 a escala 100 %, pistola HID y cámara reales con etiquetas antiguas y nuevas; prueba sintética no sustituye este gate.
 - Revisión de impacto fiscal/GS1, negocio y seguridad, aprobación explícita para migración Development y eventual Production bajo #65.
 
-**Estado de aceptación:** definido el diseño de campos/cardinalidad/retención/unicidad y no reutilización; pendiente implementar tabla, migración, triggers, API/UX, pruebas físicas y aceptar política. La PR #68 continúa DRAFT, #70 abierto. No modificar EAN ni ejecutar DDL por esta definición.
+**Estado actualizado 16-nov-2026:** migraciones, triggers, funciones, API y UI ya implementados en development y pruebas CI. Pendientes: migración Neon DEV autorizada, aceptación física F398, política de retención firmada y release #65. PR #68 DRAFT y #70 abierto. No modificar EAN ni ejecutar DDL en Neon por esta definición.
 
 
 ## F457 — Consulta controlada de alias (en código, no habilitada)
@@ -60,7 +60,7 @@
 - `GET /api/productos/por-codigo/{codigo}` conserva comportamiento anterior por defecto. La opción `Barcodes:EnableHistoricalAliasLookup` está **OFF** salvo activación explícita en entorno ya migrado y certificado. Si falta tabla, responde 503, sin fallback a resultados potencialmente inconsistentes.
 - La respuesta incluye `CodigoLeido` y `EsAlias` para identificar el tipo de etiqueta sin cambiar `CodigoEAN` del producto. No registra lecturas WMS automáticamente.
 - F457 prueba consulta de código vigente y alias sintético del mismo producto, filtrado del vendedor propietario y ausencia para otro vendedor **solo en PostgreSQL efímero CI**.
-- **No habilitar el flag todavía:** F451 no se aplicó en Neon, aún no hay flujo transaccional de rotación, la captura WMS y el hardware siguen pendientes.
+- **No habilitar el flag todavía:** F451/F470 solo han sido probadas en PostgreSQL efímero. Rotación transaccional y captura WMS están implementadas en código, pero falta migrar Neon con respaldo y certificar hardware, recuperación y autorización.
 
 ## F460 — Escaneo WMS de alias (bandera OFF)
 
@@ -68,3 +68,7 @@
 - El código físico original escaneado se guarda en `LecturaConteo.CodigoLeido` y conserva la clave de idempotencia `LecturaId`; el producto actual no cambia EAN.
 - La prueba PostgreSQL desechable agrega un alias sintético a un producto con stock, registra una lectura de la etiqueta anterior y repite el mismo UUID; verifica una sola lectura, mismo ProductoId y EAN vigente intacto.
 - **No activar en Neon DEV/Production** hasta completar la migración F451/F454, autorizaciones y pruebas con hardware real. La prueba sintética no demuestra rotación transaccional ni seguridad de lectores físicos.
+
+## F487: política de EAN externo y prefijo interno
+
+La nueva rotación admite exclusivamente EAN-13 de prefijo interno 20 con checksum válido. Un EAN externo GS1 debe rechazarse aunque su dígito verificador sea correcto: no se dispone de evidencia de titularidad contractual ni integración verificadora GS1. El uso del prefijo 20 queda restringido al inventario interno; no autoriza comercialización externa. Las pruebas F487 verifican rechazo de códigos externos e inválidos antes de consultar la base. Ninguna regla habilita reuso de códigos históricos ni reemplaza la certificación de titularidad por vendedor.
