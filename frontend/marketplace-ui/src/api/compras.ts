@@ -213,16 +213,16 @@ export const comprasApi = {
   obtenerPO: async (id: string) => mapOrden(await apiClient.get<BackendOrdenCompra>(`/api/compras/po/${id}`)),
 
   crearPO: (req: CrearPORequest) =>
-    apiClient.post('/api/compras/po', req),
+    apiClient.postVoid('/api/compras/po', req),
 
   enviarPO: (id: string) =>
-    apiClient.post(`/api/compras/po/${id}/enviar`),
+    apiClient.postVoid(`/api/compras/po/${id}/enviar`),
 
   recibirMercancia: (id: string, req: RecibirMercaderiaRequest) =>
-    apiClient.put(`/api/compras/po/${id}/recibir`, req),
+    apiClient.putVoid(`/api/compras/po/${id}/recibir`, req),
 
   registrarFactura: (req: RegistrarFacturaRequest) =>
-    apiClient.post('/api/compras/facturas', req),
+    apiClient.postVoid('/api/compras/facturas', req),
 
   ejecutarMatch: async (req: Validar3WayMatchRequest) =>
     mapMatch(await apiClient.post<BackendMatch>('/api/compras/match', {

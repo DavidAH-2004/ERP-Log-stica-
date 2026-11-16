@@ -51,7 +51,8 @@ export function setForbiddenHandler(handler: ForbiddenHandler) {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  ignoreSuccessBody = false
 ): Promise<T> {
   const token = cookieBffMode ? null : localStorage.getItem('erp_token');
   const method = (options.method ?? 'GET').toUpperCase();
@@ -136,10 +137,21 @@ async function request<T>(
     throw new ApiError(res.status, errorMsg || `Error en la solicitud (${res.status})`, parsedBody);
   }
 
-  // 204 No Content
-  if (res.status === 204) return undefined as unknown as T;
+  // La operación puede haber sido persistida aunque la respuesta 2xx no tenga JSON.
+  // Para comandos cuyo resultado no se utiliza, validar el HTTP 2xx sin leer el cuerpo.
+  if (ignoreSuccessBody || res.status === 204 || res.status === 205 || method === 'HEAD')
+    return undefined as T;
 
-  return res.json() as Promise<T>;
+  const body = await res.text();
+  if (!body.trim()) {
+    if (stateChange) return undefined as T; // POST/PUT/DELETE 2xx sin contenido válido.
+    throw new ApiError(res.status, 'El servidor respondió sin datos para esta consulta.');
+  }
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    throw new ApiError(res.status, 'El servidor devolvió una respuesta JSON inválida.');
+  }
 }
 
 /** Authenticated binary download that uses the same BFF/legacy session mode as JSON APIs. */
@@ -167,7 +179,12 @@ export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, headers?: HeadersInit) =>
     request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined, headers }),
+  // Comandos que solo requieren saber si el servidor aceptó la operación.
+  postVoid: (path: string, body?: unknown) =>
+    request<void>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }, true),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  putVoid: (path: string, body?: unknown) =>
+    request<void>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }, true),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
