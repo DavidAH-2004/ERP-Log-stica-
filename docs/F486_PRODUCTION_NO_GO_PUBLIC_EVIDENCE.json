@@ -1,0 +1,21 @@
+{
+  "mainSha": "8325ccec0bee1eaf30511f4c190804fcb073c769",
+  "renderLiveSha": "77e9a16ea2b9d7d7cdd3c83c65bf9bb1b4e81d1d",
+  "vercelProductionSha": "e04c90696e59d86390216a8b51bf00e876cfebc5",
+  "renderBranch": "integracion/main-reconciliacion-20261102",
+  "vercelProductionBranch": "main",
+  "gitMainProtected": true,
+  "prodNeonTargetIndependentlyVerified": false,
+  "productionBackupRestoredToIsolatedDatabase": false,
+  "renderSecretsRestorable": false,
+  "vercelSecretsRestorable": false,
+  "activeWritersQuiescedOrFenced": false,
+  "rollbackRunbookValidated": false,
+  "paymentsRemainDisabled": false,
+  "stagingDatabaseIndependent": true,
+  "explicitOwnerProductionAuthorization": false,
+  "artifactId": "F486-read-only-observation-not-release-attestation",
+  "evidenceCapturedAtUtc": "",
+  "productionBackendReachable": true,
+  "productionFrontendReachable": false
+}

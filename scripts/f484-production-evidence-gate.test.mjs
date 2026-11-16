@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {evaluateReleaseEvidence} from './f484-production-evidence-gate.mjs';
 const sha='a'.repeat(40);
 const pass={
@@ -48,4 +49,12 @@ const observed={
 };
 assert.equal(evaluateReleaseEvidence(observed).status,'NO_GO');
 assert.equal(evaluateReleaseEvidence({}).status,'NO_GO');
+
+const observedFromConnectedProviders = JSON.parse(
+  readFileSync(new URL('../docs/F486_PRODUCTION_NO_GO_PUBLIC_EVIDENCE.json',import.meta.url),'utf8'));
+const verified = evaluateReleaseEvidence(observedFromConnectedProviders);
+assert.equal(verified.status,'NO_GO');
+assert.ok(verified.missing.some(x=>x.includes('Render SHA')));
+assert.ok(verified.missing.some(x=>x.includes('Vercel public alias SHA')));
+assert.ok(verified.missing.some(x=>x.includes('Render production branch')));
 console.log('F484_PRODUCTION_EVIDENCE_GATE_PASS readOnly=true deploy=false');
