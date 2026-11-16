@@ -69,10 +69,22 @@ namespace MarketplaceERP.Finance.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Dropping this table silently destroys issued purchase-order PDFs.
-            // Recovery requires an independently verified PostgreSQL backup.
-            throw new InvalidOperationException(
-                "Compras Archivos: Down destructivo bloqueado; restaurar desde un respaldo validado.");
+            // Permit historical schema rollback tests when the table is EMPTY only.
+            // Never drop a single archived PDF: an actual deployment must first
+            // export and verify the document data independently.
+            migrationBuilder.Sql("""
+                DO $f601$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM finance.archivos_compras LIMIT 1) THEN
+                        RAISE EXCEPTION 'F601_ARCHIVOS_COMPRAS_CON_DATOS: respaldo/restauracion obligatorios'
+                            USING ERRCODE = '23514';
+                    END IF;
+                END
+                $f601$;
+                """);
+            migrationBuilder.DropTable(
+                name: "archivos_compras",
+                schema: "finance");
         }
     }
 }
