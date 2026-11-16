@@ -30,6 +30,7 @@ export default function RotacionesEanPage() {
   const [motivo, setMotivo] = useState('');
   const [solicitud, setSolicitud] = useState(nuevoId);
   const [aprobacion, setAprobacion] = useState('');
+  const [cancelacion, setCancelacion] = useState('');
   const [eventos, setEventos] = useState<RotacionEanEvento[]>([]);
   const [ocupado, setOcupado] = useState(false);
   const [resultado, setResultado] = useState('');
@@ -85,6 +86,18 @@ export default function RotacionesEanPage() {
     finally { setOcupado(false); }
   };
 
+  const cancelar = async () => {
+    if (!uuid.test(cancelacion)) { setError('Indica UUID de solicitud para cancelar.'); return; }
+    if (!window.confirm('Solo el Admin solicitante puede cancelar una solicitud todavía pendiente. ¿Continuar?')) return;
+    setOcupado(true); setError(''); setResultado('');
+    try {
+      const r = await rotacionesEanApi.cancelar(cancelacion);
+      setResultado('Solicitud ' + r.solicitudId + ': ' + r.estado + '. No se modificó ningún EAN.');
+      try { await cargarSinCambiarEstado(); } catch { /* cancellation result is authoritative */ }
+    } catch (e) { manejarError(e); }
+    finally { setOcupado(false); }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 810 }}>
       <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }}
@@ -123,6 +136,14 @@ export default function RotacionesEanPage() {
           onChange={e => setAprobacion(e.target.value.trim())}/></label>
         <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={ocupado || inactivo}
           onClick={aprobar}>Aprobar solicitud</button>
+      </section>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <h2 style={{ fontSize: '1.1rem' }}>3. Cancelar solicitud pendiente</h2>
+        <p>Solo el Admin que la registró puede cancelarla. Una rotación ejecutada no puede revertirse desde aquí.</p>
+        <label>UUID de solicitud<input style={campo} value={cancelacion}
+          onChange={e => setCancelacion(e.target.value.trim())}/></label>
+        <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }}
+          disabled={ocupado || inactivo} onClick={cancelar}>Cancelar solicitud pendiente</button>
       </section>
       <section>
         <h2 style={{ fontSize: '1.1rem' }}>Historial del producto (máximo 100 eventos)</h2>

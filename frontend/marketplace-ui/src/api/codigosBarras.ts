@@ -55,4 +55,7 @@ export const rotacionesEanApi = {
   aprobar: (solicitudId: string) =>
     apiClient.post<{ solicitudId: string; estado: string }>(
       '/api/productos/codigo-barras/rotaciones/' + encodeURIComponent(solicitudId) + '/aprobar'),
+  cancelar: (solicitudId: string) =>
+    apiClient.post<{ solicitudId: string; estado: string }>(
+      '/api/productos/codigo-barras/rotaciones/' + encodeURIComponent(solicitudId) + '/cancelar'),
 };

@@ -46,6 +46,20 @@ public sealed class RotacionEanService
             SELECT catalog.f470_aprobar_rotacion({solicitudId}, {actorAdmin}) AS "Value"
             """).SingleAsync(ct);
     }
+    /// <summary>
+    /// F481: cancel only a pending request, as its ORIGINAL requester.
+    /// Approved/executed rotation is never reversible through this endpoint.
+    /// </summary>
+    public Task<string> CancelarAsync(
+        Guid solicitudId, Guid actorAdmin, CancellationToken ct = default)
+    {
+        if (solicitudId == Guid.Empty || actorAdmin == Guid.Empty)
+            throw new ArgumentException("Solicitud y administrador obligatorios.");
+        return _db.Database.SqlQuery<string>($"""
+            SELECT catalog.f481_cancelar_rotacion({solicitudId}, {actorAdmin}) AS "Value"
+            """).SingleAsync(ct);
+    }
+
     /// <summary>Read-only, capped Admin audit. No operator PII or credentials.</summary>
     public async Task<IReadOnlyList<RotacionEanEvento>> HistorialAsync(
         Guid productoId, CancellationToken ct = default)

@@ -102,6 +102,28 @@ public sealed class RotacionesEanController : ControllerBase
         }
     }
 
+    [HttpPost("codigo-barras/rotaciones/{solicitudId:guid}/cancelar")]
+    public async Task<IActionResult> Cancelar(Guid solicitudId, CancellationToken ct)
+    {
+        if (!_habilitada) return Inactiva();
+        if (!ActorAdmin(out var actor))
+            return Unauthorized(new { mensaje = "Admin autenticado requerido." });
+        try
+        {
+            var estado = await _service.CancelarAsync(solicitudId, actor, ct);
+            Response.Headers.CacheControl = "no-store";
+            return Ok(new { solicitudId, estado });
+        }
+        catch (ArgumentException)
+        {
+            return BadRequest(new { mensaje = "Solicitud inválida." });
+        }
+        catch (PostgresException ex)
+        {
+            return MapearSql(ex);
+        }
+    }
+
     private bool ActorAdmin(out Guid actor)
     {
         var raw = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

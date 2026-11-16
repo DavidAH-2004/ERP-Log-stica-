@@ -191,6 +191,52 @@ public partial class F470RotacionEanDobleAprobacion : Migration
                         previa."SolicitadoPor",p_aprobado_por,now(),now(),3,'Ejecutada');
                 RETURN 'Ejecutada';
             END $f$;
+
+            -- F481: requester-only cancellation BEFORE approval. The
+            -- event is immutable (Version 2, Rechazada), no EAN or stock changes.
+            -- Same request-scoped advisory lock as approval across all nodes.
+            CREATE FUNCTION catalog.f481_cancelar_rotacion(
+                p_solicitud uuid, p_actor uuid)
+            RETURNS text LANGUAGE plpgsql AS $f$
+            DECLARE
+                previa catalog.rotaciones_ean%ROWTYPE;
+            BEGIN
+                IF p_solicitud IS NULL OR p_actor IS NULL
+                   OR p_solicitud = '00000000-0000-0000-0000-000000000000'::uuid
+                   OR p_actor = '00000000-0000-0000-0000-000000000000'::uuid
+                THEN
+                    RAISE EXCEPTION 'F481: solicitud o actor invalido'
+                        USING ERRCODE = '23514';
+                END IF;
+
+                PERFORM pg_advisory_xact_lock(hashtextextended(p_solicitud::text, 470));
+                SELECT * INTO previa FROM catalog.rotaciones_ean
+                    WHERE "SolicitudId" = p_solicitud
+                    ORDER BY "Version" DESC LIMIT 1;
+                IF NOT FOUND THEN
+                    RAISE EXCEPTION 'F481: solicitud inexistente'
+                        USING ERRCODE = 'P0002';
+                END IF;
+                IF previa."SolicitadoPor" IS DISTINCT FROM p_actor THEN
+                    RAISE EXCEPTION 'F481: solo el solicitante puede cancelar'
+                        USING ERRCODE = '23514';
+                END IF;
+                IF previa."Estado" = 'Rechazada' THEN
+                    RETURN 'Rechazada'; -- replay must not append another event
+                END IF;
+                IF previa."Estado" <> 'Solicitada' OR previa."Version" <> 1 THEN
+                    RAISE EXCEPTION 'F481: solicitud ya aprobada o ejecutada'
+                        USING ERRCODE = '23514';
+                END IF;
+
+                INSERT INTO catalog.rotaciones_ean
+                    ("Id","SolicitudId","ProductoId","CodigoAnterior",
+                     "CodigoNuevo","Motivo","SolicitadoPor","Version","Estado")
+                VALUES (gen_random_uuid(),previa."SolicitudId",previa."ProductoId",
+                        previa."CodigoAnterior",previa."CodigoNuevo",previa."Motivo",
+                        previa."SolicitadoPor",2,'Rechazada');
+                RETURN 'Rechazada';
+            END $f$;
             """);
     }
 
@@ -208,6 +254,7 @@ public partial class F470RotacionEanDobleAprobacion : Migration
                     RAISE EXCEPTION 'F470: rollback blocked by EAN issuance, aliases or rotation history';
                 END IF;
             END $guard$;
+            DROP FUNCTION catalog.f481_cancelar_rotacion(uuid,uuid);
             DROP FUNCTION catalog.f470_aprobar_rotacion(uuid,uuid);
             DROP FUNCTION catalog.f470_solicitar_rotacion(uuid,uuid,text,text,uuid);
             DROP FUNCTION catalog.f470_es_ean13_interno(text);

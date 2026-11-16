@@ -361,6 +361,39 @@ public sealed class F451EanReservationsMigrationPgTests
                 Assert.Equal("23505",
                     Assert.IsType<PostgresException>(conflict.InnerException).SqlState);
             }
+            // F481: the original requester may cancel a PENDING request.
+            // The append-only event and a replay preserve product/stock/EAN.
+            var cancelId = Guid.NewGuid();
+            var neverIssued = CodigoBarras.GenerarInterno(92);
+            await using (var db = NewContext())
+            {
+                var svc = new RotacionEanService(db);
+                Assert.Equal("Solicitada", await svc.SolicitarAsync(
+                    cancelId, p1.Id, neverIssued, justification, requester));
+
+                var wrongRequester = await Assert.ThrowsAsync<PostgresException>(
+                    () => svc.CancelarAsync(cancelId, approver));
+                Assert.Equal("23514", wrongRequester.SqlState);
+
+                Assert.Equal("Rechazada", await svc.CancelarAsync(cancelId, requester));
+                Assert.Equal("Rechazada", await svc.CancelarAsync(cancelId, requester));
+                var lateApproval = await Assert.ThrowsAsync<PostgresException>(
+                    () => svc.AprobarAsync(cancelId, approver));
+                Assert.Equal("23514", lateApproval.SqlState);
+
+                var history = await svc.HistorialAsync(p1.Id);
+                Assert.Equal(new[] { "Solicitada", "Rechazada" },
+                    history.Where(x => x.SolicitudId == cancelId)
+                        .OrderBy(x => x.Version).Select(x => x.Estado).ToArray());
+                Assert.Equal(third,
+                    (await db.Productos.AsNoTracking().SingleAsync(p => p.Id == p1.Id)).CodigoEAN);
+                Assert.Empty(await ConsultaCodigoEan.BuscarAsync(
+                    db, neverIssued, null, permitirHistoricos: true));
+                Assert.Equal(2, await db.StockFisico
+                    .Where(s => s.ProductoId == p1.Id).Select(s => s.CantidadTotal)
+                    .SingleAsync());
+            }
+
             // F479: race two distinct approvals for the same product;
             // exactly one wins after PG serializes the product row lock.
             var parallelA = Guid.NewGuid();
