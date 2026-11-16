@@ -120,6 +120,7 @@ export interface RegistrarFacturaRequest {
   montoTotal: number;
   fechaEmision?: string;
   fechaVencimiento?: string;
+  lineas?: { itemOrdenCompraId: string; cantidadFacturada: number; precioUnitarioFacturado: number }[];
 }
 
 export interface Validar3WayMatchRequest {
