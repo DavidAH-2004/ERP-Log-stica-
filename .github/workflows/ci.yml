@@ -274,7 +274,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18 # F489: matches actual Neon DEV/legacy PG18; .NET unit test job stays PG15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgrespassword
