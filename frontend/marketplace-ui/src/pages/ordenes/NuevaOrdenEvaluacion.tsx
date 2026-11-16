@@ -23,6 +23,7 @@ export default function NuevaOrdenEvaluacion({ actorId, onCreated }: { actorId: 
   const [error, setError] = useState('');
   const [canCorrect, setCanCorrect] = useState(false);
   const [availability, setAvailability] = useState('Comprobando disponibilidad…');
+  const [refreshOptions, setRefreshOptions] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -34,15 +35,22 @@ export default function NuevaOrdenEvaluacion({ actorId, onCreated }: { actorId: 
         setPending(parsed);
       }
     } catch { setAvailability('No se pudo recuperar la solicitud pendiente. Requiere revisión.'); return; }
+    setAvailability('Comprobando disponibilidad…');
     apiClient.get<Opciones>('/api/ordenes/evaluacion/opciones').then(value => {
       if (!active) return;
       if (!Array.isArray(value.compradores) || !Array.isArray(value.vendedores) || !Array.isArray(value.productos)) throw new Error();
       setOptions(value);
       setAvailability(value.compradores.length && value.vendedores.length && value.productos.length
         ? '' : 'Faltan perfiles o productos habilitados para la evaluación.');
-    }).catch(() => { if (active) setAvailability('Creación de evaluación no disponible en este entorno.'); });
+    }).catch((failure: unknown) => {
+      if (!active) return;
+      setOptions(null);
+      setAvailability(failure instanceof ApiError && failure.status === 503
+        ? 'OMS de prueba deshabilitado: requiere una autorización vigente en Desarrollo.'
+        : 'No se pudieron consultar las opciones de órdenes. Comprueba la conexión.');
+    });
     return () => { active = false; };
-  }, [storageKey]);
+  }, [storageKey, refreshOptions]);
 
   const send = async () => {
     if (busyRef.current || !options) return;
@@ -81,7 +89,9 @@ export default function NuevaOrdenEvaluacion({ actorId, onCreated }: { actorId: 
   return <>
     <button className="btn btn-primary" disabled={!!availability || !options} title={availability}
       onClick={() => setOpen(true)}>{pending ? 'Revisar orden pendiente' : '+ Nueva Orden'}</button>
-    {availability && <span role="status" style={{ maxWidth: 220, fontSize: 12 }}>{availability}</span>}
+    {availability && <span role="status" style={{ maxWidth: 240, fontSize: 12 }}>{availability}</span>}
+    {!!availability && <button type="button" className="btn btn-secondary"
+      onClick={() => setRefreshOptions(value => value + 1)}>Reintentar</button>}
     <Modal title="Nueva orden de evaluación" open={open} onClose={() => { if (!busy) setOpen(false); }} size="lg">
       <p>Datos sintéticos de STAGING. Se reservará inventario sin realizar pagos.</p>
       {pending ? <p role="status">Existe una solicitud enviada. Reintentar consulta o completa esa misma orden sin duplicarla. No cambies sus datos hasta verificar el resultado.</p> : <>
